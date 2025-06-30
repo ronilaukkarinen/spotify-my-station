@@ -2,7 +2,7 @@
 
 A Python script that automatically updates a Spotify playlist with random tracks from your Last.fm loved tracks. The script runs hourly to keep your playlist fresh with music you've previously loved.
 
-![Screenshot from 2025-06-30 19-49-25](https://github.com/user-attachments/assets/38b60f90-2725-4b56-9897-e644b5df7d1b)
+![image](https://github.com/user-attachments/assets/6c3e1c17-483e-450f-ae59-60564c69548b)
 
 ## Features
 
@@ -11,6 +11,8 @@ A Python script that automatically updates a Spotify playlist with random tracks
 - Designed to run via cron job scheduling
 - Logs all operations with timestamps
 - Removes existing tracks before adding new ones
+
+![Screenshot from 2025-06-30 19-49-25](https://github.com/user-attachments/assets/38b60f90-2725-4b56-9897-e644b5df7d1b)
 
 ## Requirements
 
