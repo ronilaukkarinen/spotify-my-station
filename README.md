@@ -2,6 +2,8 @@
 
 A Python script that automatically updates a Spotify playlist with random tracks from your Last.fm loved tracks. The script runs hourly to keep your playlist fresh with music you've previously loved.
 
+![Screenshot from 2025-06-30 19-49-25](https://github.com/user-attachments/assets/38b60f90-2725-4b56-9897-e644b5df7d1b)
+
 ## Features
 
 - Fetches random tracks from your Last.fm loved tracks
