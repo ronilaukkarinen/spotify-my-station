@@ -108,19 +108,18 @@ The script handles Spotify authentication with clear terminal instructions:
 6. Paste this URL back into the terminal when prompted
 7. Script saves token to `.spotify_cache` for future runs
 
-**Security Note**: Using Spotify's own developer callback URL is completely safe - it's their official testing redirect URI.
-
+**Security note**: Using Spotify's own developer callback URL is completely safe - it's their official testing redirect URI.
 **Subsequent runs**: Uses cached tokens automatically (no interaction needed)
 
 ## Usage
 
-### Single Run
+### Single run
 
 ```bash
 python spotify-my-station.py
 ```
 
-### Automated Runs with Cron
+### Automated runs with cron
 
 To run the script automatically every hour:
 
