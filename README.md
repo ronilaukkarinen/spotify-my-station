@@ -4,32 +4,28 @@
 
 ![image](https://github.com/user-attachments/assets/6c3e1c17-483e-450f-ae59-60564c69548b)
 
-## Features
-
 A Python script that automatically updates a Spotify playlist with random tracks from your Last.fm loved tracks. The script runs hourly to keep your playlist fresh with music you've previously loved. 🔄
-
-## ✨ Features
 
 ![Screenshot from 2025-06-30 19-49-25](https://github.com/user-attachments/assets/38b60f90-2725-4b56-9897-e644b5df7d1b)
 
+## Features
+
+- Fetches random tracks from your Last.fm loved tracks
+- Updates a specified Spotify playlist with these tracks
+- Designed to run via cron job scheduling
+- Logs all operations with timestamps
+- Removes existing tracks before adding new ones
+
 ## Requirements
 
-- 🎶 Fetches random tracks from your Last.fm loved tracks
-- 📝 Updates a specified Spotify playlist with these tracks
-- ⏰ Designed to run via cron job scheduling
-- 📊 Logs all operations with timestamps
-- 🔄 Removes existing tracks before adding new ones
+- Python 3.6+
+- Last.fm account with API access
+- Spotify account with API access
+- A Spotify playlist to update
 
-## 📋 Requirements
+## Setup
 
-- 🐍 Python 3.6+
-- 🎵 Last.fm account with API access
-- 🟢 Spotify account with API access
-- 📜 A Spotify playlist to update
-
-## 🚀 Setup
-
-### 1. 🐍 Virtual Environment Setup
+### 1. Virtual environment setup
 
 Create and activate a virtual environment:
 
@@ -44,19 +40,21 @@ source venv/bin/activate
 # venv\Scripts\activate
 ```
 
-### 2. 📦 Install Dependencies
+### 2. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. 🔑 API Setup
+### 3. API setup
 
-#### 🎵 Last.fm API
+#### Last.fm API
+
 1. Go to https://www.last.fm/api/account/create
 2. Create an API account and get your API key and secret
 
-#### 🟢 Spotify API
+#### Spotify API
+
 1. Go to https://developer.spotify.com/dashboard
 2. Create a new app and get your client ID and secret
 3. **IMPORTANT**: In "Redirect URIs", add exactly: `https://developer.spotify.com/callback`
@@ -65,7 +63,7 @@ pip install -r requirements.txt
    - This URI must match what's in your `.env` file
    - **Note**: This is Spotify's own testing redirect URI
 
-### 4. ⚙️ Environment Configuration
+### 4. Environment configuration
 
 Copy the `.env.example` file to `.env` and fill in your credentials:
 
@@ -90,17 +88,18 @@ LOG_FILE=/path/to/your/spotify-my-station.log
 NUMBER_OF_TRACKS=100
 ```
 
-### 5. 🆔 Get Spotify Playlist ID
+### 5. Get Spotify playlist ID
 
 1. Open Spotify and navigate to your playlist
 2. Click "Share" > "Copy link to playlist"
 3. Extract the playlist ID from the URL (the part after `/playlist/`)
 
-### 6. 🔐 First Run Authentication
+### 6. First run authentication
 
 The script handles Spotify authentication with clear terminal instructions:
 
-**First Run Process:**
+#### First run process
+
 1. Script displays an authorization URL
 2. Copy this URL and open it in your browser
 3. Log in to Spotify and click "Agree" to authorize
@@ -113,15 +112,15 @@ The script handles Spotify authentication with clear terminal instructions:
 
 **Subsequent runs**: Uses cached tokens automatically (no interaction needed)
 
-## 🎯 Usage
+## Usage
 
-### 🚀 Single Run
+### Single Run
 
 ```bash
 python spotify-my-station.py
 ```
 
-### ⏰ Automated Runs with Cron
+### Automated Runs with Cron
 
 To run the script automatically every hour:
 
@@ -135,28 +134,24 @@ To run the script automatically every hour:
    0 * * * * cd /home/rolle/spotify-my-station && /home/rolle/spotify-my-station/venv/bin/python spotify-my-station.py >> /dev/null 2>&1
    ```
 
-## ⚙️ Configuration
+## Configuration
 
 The script can be configured through environment variables in the `.env` file:
 
-- 🔢 `NUMBER_OF_TRACKS`: Number of tracks to add to the playlist (default: 100)
-- 📄 `LOG_FILE`: Path to the log file
+- `NUMBER_OF_TRACKS`: Number of tracks to add to the playlist (default: 100)
+- `LOG_FILE`: Path to the log file
 
-## 📝 Logging
+## Logging
 
 The script logs all operations to both the console and a log file. Check the log file for detailed information about:
-- 🔐 Authentication status
-- 📊 Number of tracks processed
-- ❌ Tracks not found on Spotify
-- 🚨 Error messages
+- Authentication status
+- Number of tracks processed
+- Tracks not found on Spotify
+- Error messages
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
-1. **🔑 Authentication Issues**: Make sure your API credentials are correct in the `.env` file
-2. **📝 Playlist Not Updating**: Verify the playlist ID and ensure your Spotify app has the correct permissions
-3. **🎵 Tracks Not Found**: Some Last.fm tracks might not be available on Spotify
-4. **📁 Permission Errors**: Ensure the script has write permissions for the log file location
-
-## 📄 License
-
-This project is open source and available under the MIT License.
+1. **Authentication issues**: Make sure your API credentials are correct in the `.env` file
+2. **Playlist not Updating**: Verify the playlist ID and ensure your Spotify app has the correct permissions
+3. **Tracks not found**: Some Last.fm tracks might not be available on Spotify
+4. **Permission errors**: Ensure the script has write permissions for the log file location
