@@ -4,6 +4,7 @@ from spotipy.oauth2 import SpotifyOAuth, SpotifyClientCredentials
 import time
 import random
 import os
+import argparse
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -55,7 +56,7 @@ def authenticate_spotify():
             client_id=SPOTIPY_CLIENT_ID,
             client_secret=SPOTIPY_CLIENT_SECRET,
             redirect_uri=SPOTIPY_REDIRECT_URI,
-            scope="playlist-modify-public playlist-modify-private",
+            scope="playlist-modify-public playlist-modify-private user-read-private",
             cache_path=cache_path,
             open_browser=False
         )
@@ -141,6 +142,106 @@ def get_random_tracks_from_lastfm(network, num_tracks=100):
         return None
 
 
+def get_lastfm_recommendations(sp, network, num_tracks=100):
+    try:
+        log_message("Getting recommendations using Last.fm similar artists...")
+        
+        # Get some random artists from loved tracks to find similar artists
+        user = network.get_user(LASTFM_USERNAME)
+        loved_tracks = user.get_loved_tracks(limit=200)
+        
+        # Extract unique artists from loved tracks
+        artists_set = set()
+        for item in loved_tracks:
+            artists_set.add(item.track.artist.name)
+        
+        artists_list = list(artists_set)
+        random.shuffle(artists_list)
+        log_message(f"Found {len(artists_list)} unique artists from loved tracks")
+        
+        # Get similar artists for a few random seed artists
+        recommended_tracks = []
+        seed_artists_used = 0
+        max_seed_artists = 5  # Use up to 5 seed artists
+        
+        for artist_name in artists_list[:max_seed_artists]:
+            if len(recommended_tracks) >= num_tracks:
+                break
+                
+            try:
+                log_message(f"Finding artists similar to: {artist_name}")
+                artist = network.get_artist(artist_name)
+                similar_artists = artist.get_similar(limit=10)
+                
+                # Get top tracks from similar artists
+                for similar_artist in similar_artists:
+                    if len(recommended_tracks) >= num_tracks:
+                        break
+                    
+                    try:
+                        # Get top tracks from this similar artist
+                        top_tracks = similar_artist.item.get_top_tracks(limit=5)
+                        
+                        for track_item in top_tracks:
+                            if len(recommended_tracks) >= num_tracks:
+                                break
+                            
+                            track = track_item.item
+                            
+                            # Skip if this track is already in user's loved tracks
+                            track_key = f"{track.title}|{track.artist.name}"
+                            
+                            # Search for track on Spotify to verify it exists
+                            search_results = sp.search(
+                                q=f"track:{track.title} artist:{track.artist.name}", 
+                                type="track", 
+                                limit=1
+                            )
+                            
+                            if search_results["tracks"]["items"]:
+                                # Create a track object that matches the expected format
+                                class RecommendedTrack:
+                                    def __init__(self, title, artist_name):
+                                        self.title = title
+                                        self.artist = type('Artist', (), {'name': artist_name})()
+                                
+                                recommended_tracks.append(RecommendedTrack(
+                                    track.title, 
+                                    track.artist.name
+                                ))
+                                
+                                if len(recommended_tracks) % 10 == 0:
+                                    log_message(f"Found {len(recommended_tracks)} recommendations so far...")
+                    
+                    except Exception as track_error:
+                        # Skip this artist if we can't get their tracks
+                        continue
+                
+                seed_artists_used += 1
+                log_message(f"Processed {seed_artists_used}/{max_seed_artists} seed artists")
+                
+            except Exception as artist_error:
+                log_message(f"Could not process artist {artist_name}: {artist_error}", 'yellow')
+                continue
+        
+        if not recommended_tracks:
+            log_message("No recommendations found. Falling back to random loved tracks.", 'yellow')
+            return get_random_tracks_from_lastfm(network, num_tracks)
+        
+        # Shuffle and trim to requested number
+        random.shuffle(recommended_tracks)
+        recommended_tracks = recommended_tracks[:num_tracks]
+        
+        log_message(f"Generated {len(recommended_tracks)} Last.fm-based recommendations", 'green')
+        return recommended_tracks
+        
+    except Exception as e:
+        import traceback
+        log_message(f"Error getting Last.fm recommendations: {str(e)}", 'red')
+        log_message(f"Traceback: {traceback.format_exc()}", 'red')
+        return None
+
+
 def update_spotify_playlist(sp, playlist_id, tracks):
     try:
         user_id = sp.me()["id"]
@@ -201,10 +302,12 @@ def log_message(message, color=None):
         f.write(log_entry)
 
 
-def job():
+def job(use_recommended=False, playlist_id=None):
+    target_playlist_id = playlist_id or SPOTIFY_PLAYLIST_ID
     log_message(f"Starting playlist update job (version {__version__})...", 'yellow')
-    log_message(f"Target playlist ID: {SPOTIFY_PLAYLIST_ID}")
+    log_message(f"Target playlist ID: {target_playlist_id}")
     log_message(f"Requesting {NUMBER_OF_TRACKS} tracks from Last.fm user: {LASTFM_USERNAME}")
+    log_message(f"Mode: {'Recommended' if use_recommended else 'Random'} tracks")
     
     log_message("Authenticating with Last.fm...")
     lastfm_network = authenticate_lastfm()
@@ -220,18 +323,30 @@ def job():
         return
     log_message("Spotify authentication successful.", 'green')
 
-    log_message("Fetching random tracks from Last.fm loved tracks...")
-    tracks = get_random_tracks_from_lastfm(lastfm_network, NUMBER_OF_TRACKS)
+    if use_recommended:
+        log_message("Generating recommendations based on your Last.fm loved tracks...")
+        tracks = get_lastfm_recommendations(spotify_client, lastfm_network, NUMBER_OF_TRACKS)
+    else:
+        log_message("Fetching random tracks from Last.fm loved tracks...")
+        tracks = get_random_tracks_from_lastfm(lastfm_network, NUMBER_OF_TRACKS)
+    
     if not tracks:
         log_message("Failed to retrieve tracks from Last.fm. Aborting.", 'red')
         return
     log_message(f"Successfully retrieved {len(tracks)} tracks from Last.fm.", 'green')
 
     log_message("Updating Spotify playlist...")
-    update_spotify_playlist(spotify_client, SPOTIFY_PLAYLIST_ID, tracks)
+    update_spotify_playlist(spotify_client, target_playlist_id, tracks)
     log_message("Playlist update job completed successfully.", 'green')
 
 
 # --- Main ---
 if __name__ == "__main__":
-    job()
+    parser = argparse.ArgumentParser(description='Spotify My Station - Update playlist with Last.fm loved tracks')
+    parser.add_argument('--recommended', action='store_true', 
+                       help='Use recommended mode (less played + newer tracks) instead of random selection')
+    parser.add_argument('--playlist', type=str,
+                       help='Spotify playlist ID to update (overrides environment variable)')
+    
+    args = parser.parse_args()
+    job(use_recommended=args.recommended, playlist_id=args.playlist)

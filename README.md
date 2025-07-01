@@ -119,6 +119,40 @@ The script handles Spotify authentication with clear terminal instructions:
 python spotify-my-station.py
 ```
 
+## Usage Options
+
+The script supports several command line options:
+
+### Basic Usage
+```bash
+python spotify-my-station.py
+```
+Runs with default settings (random tracks from loved tracks).
+
+### Recommended Mode
+```bash
+python spotify-my-station.py --recommended
+```
+Uses Spotify's recommendation engine to discover new music based on your Last.fm loved tracks. This generates fresh recommendations of songs you haven't heard before from similar artists and genres.
+
+### Custom Playlist
+```bash
+python spotify-my-station.py --playlist PLAYLIST_ID
+```
+Updates a specific playlist instead of the default one from environment variables.
+
+### Combined Options
+```bash
+python spotify-my-station.py --recommended --playlist PLAYLIST_ID
+```
+Uses recommended mode on a specific playlist.
+
+### Help
+```bash
+python spotify-my-station.py --help
+```
+Shows all available options.
+
 ### Automated runs with cron
 
 To run the script automatically every hour:
