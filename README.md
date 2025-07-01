@@ -151,6 +151,6 @@ The script logs all operations to both the console and a log file. Check the log
 ## Troubleshooting
 
 1. **Authentication issues**: Make sure your API credentials are correct in the `.env` file
-2. **Playlist not Updating**: Verify the playlist ID and ensure your Spotify app has the correct permissions
+2. **Playlist not updating**: Verify the playlist ID and ensure your Spotify app has the correct permissions
 3. **Tracks not found**: Some Last.fm tracks might not be available on Spotify
 4. **Permission errors**: Ensure the script has write permissions for the log file location
