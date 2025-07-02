@@ -1,3 +1,15 @@
+### 1.1.0: 2025-07-02
+
+* Add AI-powered My Station mode with --ai parameter
+* Add OpenAI GPT-4o-mini and Google Gemini AI integration
+* Add configurable AI provider selection via AI_PROVIDER environment variable
+* Add hybrid approach: AI suggests artists, Spotify finds tracks (40% loved tracks, 60% AI-guided recommendations)
+* Add deduplication logic to prevent multiple songs from same artist
+* Add filtering to exclude "Various Artists" and live recordings
+* Add verbose progress logging for large music collections
+* Add robust JSON parsing with multiple fallback strategies
+* Add listening history analysis from log files
+
 ### 1.0.1: 2025-07-01
 
 * Add recommended tracks mode with --recommended parameter

@@ -1,10 +1,10 @@
 # 🎵 Spotify My Station
 
-![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54) ![Spotify](https://img.shields.io/badge/Spotify-1DB954?style=for-the-badge&logo=spotify&logoColor=white) ![Last.fm](https://img.shields.io/badge/last.fm-D51007?style=for-the-badge&logo=last.fm&logoColor=white) ![Version](https://img.shields.io/badge/version-1.0.0-blue?style=for-the-badge) ![License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge) ![Cron](https://img.shields.io/badge/Cron-Compatible-orange?style=for-the-badge&logo=linux&logoColor=white)
+![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54) ![Spotify](https://img.shields.io/badge/Spotify-1DB954?style=for-the-badge&logo=spotify&logoColor=white) ![Last.fm](https://img.shields.io/badge/last.fm-D51007?style=for-the-badge&logo=last.fm&logoColor=white) ![OpenAI](https://img.shields.io/badge/OpenAI-412991?style=for-the-badge&logo=openai&logoColor=white) ![Google Gemini](https://img.shields.io/badge/Google%20Gemini-4285F4?style=for-the-badge&logo=google&logoColor=white) ![Version](https://img.shields.io/badge/version-1.1.0-blue?style=for-the-badge) ![License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge) ![Cron](https://img.shields.io/badge/Cron-Compatible-orange?style=for-the-badge&logo=linux&logoColor=white)
 
 ![image](https://github.com/user-attachments/assets/6c3e1c17-483e-450f-ae59-60564c69548b)
 
-A Python script that automatically updates a Spotify playlist with random tracks from your Last.fm loved tracks. The script runs hourly to keep your playlist fresh with music you've previously loved. 🔄
+A Python script that automatically updates a Spotify playlist with tracks from your Last.fm loved tracks. Features multiple modes including AI-powered recommendations that mimic Apple Music's "My Station" for intelligent music curation. 🔄
 
 ![Screenshot from 2025-06-30 19-49-25](https://github.com/user-attachments/assets/38b60f90-2725-4b56-9897-e644b5df7d1b)
 
@@ -22,6 +22,7 @@ A Python script that automatically updates a Spotify playlist with random tracks
 - Last.fm account with API access
 - Spotify account with API access
 - A Spotify playlist to update
+- **For AI mode**: OpenAI API key OR Google Gemini API key
 
 ## Setup
 
@@ -84,6 +85,11 @@ SPOTIPY_CLIENT_SECRET=your_spotify_client_secret
 SPOTIPY_REDIRECT_URI=https://developer.spotify.com/callback
 SPOTIFY_PLAYLIST_ID=your_spotify_playlist_id
 
+# AI API credentials and configuration (for --ai mode)
+AI_PROVIDER=openai  # Options: openai, gemini
+OPENAI_API_KEY=your_openai_api_key
+GEMINI_API_KEY=your_gemini_api_key
+
 LOG_FILE=/path/to/your/spotify-my-station.log
 NUMBER_OF_TRACKS=100
 ```
@@ -135,6 +141,23 @@ python spotify-my-station.py --recommended
 ```
 Uses Spotify's recommendation engine to discover new music based on your Last.fm loved tracks. This generates fresh recommendations of songs you haven't heard before from similar artists and genres.
 
+### AI-Powered My Station Mode
+```bash
+python spotify-my-station.py --ai
+```
+Uses OpenAI or Google Gemini AI to create a personalized "My Station" playlist similar to Apple Music's feature. This mode:
+- Analyzes your entire Last.fm loved tracks collection (perfect for 20+ years of music history)
+- Creates an intelligent mix of familiar favorites and new discoveries
+- Learns from your listening patterns and playlist update history
+- Balances songs you love with AI-curated recommendations based on your taste
+
+**Mix Strategy:**
+- 30% songs from your vast loved tracks collection (spanning different eras and moods)
+- 25% deep cuts from your favorite artists
+- 25% songs from similar artists you should discover
+- 15% newer releases matching your taste
+- 5% surprise picks aligned with your musical DNA
+
 ### Custom Playlist
 ```bash
 python spotify-my-station.py --playlist PLAYLIST_ID
@@ -144,8 +167,9 @@ Updates a specific playlist instead of the default one from environment variable
 ### Combined Options
 ```bash
 python spotify-my-station.py --recommended --playlist PLAYLIST_ID
+python spotify-my-station.py --ai --playlist PLAYLIST_ID
 ```
-Uses recommended mode on a specific playlist.
+Uses recommended or AI mode on a specific playlist.
 
 ### Help
 ```bash

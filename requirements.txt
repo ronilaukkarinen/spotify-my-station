@@ -1,3 +1,5 @@
 pylast
 spotipy
 python-dotenv
+openai
+google-generativeai
