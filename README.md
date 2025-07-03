@@ -1,6 +1,6 @@
 # 🎵 Spotify My Station
 
-![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54) ![Spotify](https://img.shields.io/badge/Spotify-1DB954?style=for-the-badge&logo=spotify&logoColor=white) ![Last.fm](https://img.shields.io/badge/last.fm-D51007?style=for-the-badge&logo=last.fm&logoColor=white) ![Chagtgpt](https://img.shields.io/badge/OpenAI-74aa9c?style=for-the-badge&logo=openai&logoColor=white) ![Google Gemini](https://img.shields.io/badge/Google%20Gemini-4285F4?style=for-the-badge&logo=google&logoColor=white) ![Version](https://img.shields.io/badge/version-1.1.0-blue?style=for-the-badge)
+![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54) ![Spotify](https://img.shields.io/badge/Spotify-1DB954?style=for-the-badge&logo=spotify&logoColor=white) ![Last.fm](https://img.shields.io/badge/last.fm-D51007?style=for-the-badge&logo=last.fm&logoColor=white) ![Chagtgpt](https://img.shields.io/badge/OpenAI-74aa9c?style=for-the-badge&logo=openai&logoColor=white) ![Google Gemini](https://img.shields.io/badge/Google%20Gemini-4285F4?style=for-the-badge&logo=google&logoColor=white) ![Version](https://img.shields.io/badge/version-1.2.0-blue?style=for-the-badge)
 
 ![image](https://github.com/user-attachments/assets/6c3e1c17-483e-450f-ae59-60564c69548b)
 
@@ -152,11 +152,9 @@ Uses OpenAI or Google Gemini AI to create a personalized "My Station" playlist s
 - Balances songs you love with AI-curated recommendations based on your taste
 
 **Mix Strategy:**
-- 30% songs from your vast loved tracks collection (spanning different eras and moods)
-- 25% deep cuts from your favorite artists
-- 25% songs from similar artists you should discover
-- 15% newer releases matching your taste
-- 5% surprise picks aligned with your musical DNA
+- 25% songs from your vast loved tracks collection (spanning different eras and moods)
+- 50% tracks from AI-recommended artists based on your taste analysis
+- 25% songs from similar artists discovered via Last.fm recommendations
 
 ### Custom Playlist
 ```bash

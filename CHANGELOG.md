@@ -1,3 +1,12 @@
+### 1.2.0: 2025-07-04
+
+* Replace deprecated Spotify recommendations API with Last.fm-based approach
+* Enforce one track per artist constraint across all recommendation modes
+* AI hybrid mode now uses 25% loved tracks, 50% AI-recommended artists, 25% similar artists
+* Better track verification to ensure all tracks exist on Spotify before adding
+* Enhanced filtering for live tracks and various artists compilations
+* Remove Spotify recommendations API calls due to deprecation in November 2024
+
 ### 1.1.0: 2025-07-02
 
 * Add AI-powered My Station mode with --ai parameter

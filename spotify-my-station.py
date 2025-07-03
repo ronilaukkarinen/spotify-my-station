@@ -19,7 +19,7 @@ try:
 except ImportError:
     genai = None
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 load_dotenv()
 
@@ -576,8 +576,8 @@ Focus on giving me the musical DNA and artist suggestions - I'll handle finding 
             used_artists = set()
             used_tracks = set()
             
-            # 1. Include some actual loved tracks (20% of total for more variety)
-            loved_count = int(num_tracks * 0.2)
+            # 1. Include some actual loved tracks (25% of total)
+            loved_count = int(num_tracks * 0.25)
             log_message(f"Adding {loved_count} tracks from your loved collection...", 'yellow')
             
             # Shuffle loved tracks to ensure variety
@@ -612,111 +612,140 @@ Focus on giving me the musical DNA and artist suggestions - I'll handle finding 
             
             log_message(f"Added {len(recommended_tracks)} unique tracks from {len(used_artists)} different artists", 'green')
             
-            # 2. Use Spotify recommendations based on AI-suggested artists (60% of total)
-            remaining_count = num_tracks - len(recommended_tracks)
-            log_message(f"Getting {remaining_count} Spotify recommendations based on AI artist suggestions...", 'yellow')
+            # 2. Find tracks from AI-recommended artists using Last.fm and search (50% of total)
+            ai_target_count = int(num_tracks * 0.5)
+            log_message(f"Getting {ai_target_count} tracks from AI-recommended artists using Last.fm and Spotify search...", 'yellow')
             
-            # Get seed tracks from AI-recommended artists
-            seed_tracks = []
-            for artist_name in ai_artists[:5]:  # Use up to 5 AI-recommended artists
+            # Get tracks from AI-recommended artists using Last.fm
+            ai_artist_tracks = []
+            for artist_name in ai_artists[:10]:  # Use up to 10 AI-recommended artists
+                if len(ai_artist_tracks) >= ai_target_count:
+                    break
                 try:
-                    search_results = sp.search(q=f"artist:{artist_name}", type="track", limit=3)
-                    if search_results["tracks"]["items"]:
-                        for track in search_results["tracks"]["items"]:
-                            seed_tracks.append(track["id"])
-                            if len(seed_tracks) >= 5:  # Spotify allows max 5 seed tracks
-                                break
-                    if len(seed_tracks) >= 5:
-                        break
-                except Exception as e:
-                    log_message(f"Could not find tracks for AI-recommended artist {artist_name}: {e}", 'yellow')
-                    continue
-            
-            # Also add some seed tracks from user's loved tracks
-            user_seed_tracks = []
-            for track_data in random.sample(loved_tracks_data, min(10, len(loved_tracks_data))):
-                try:
-                    search_results = sp.search(
-                        q=f"track:{track_data['title']} artist:{track_data['artist']}", 
-                        type="track", 
-                        limit=1
-                    )
-                    if search_results["tracks"]["items"]:
-                        user_seed_tracks.append(search_results["tracks"]["items"][0]["id"])
-                        if len(user_seed_tracks) >= 3:
+                    # Get top tracks from this artist using Last.fm
+                    artist = network.get_artist(artist_name)
+                    top_tracks = artist.get_top_tracks(limit=5)
+                    
+                    for track_item in top_tracks:
+                        if len(ai_artist_tracks) >= ai_target_count:
                             break
-                except Exception:
-                    continue
-            
-            # Combine AI and user seeds
-            all_seed_tracks = (seed_tracks + user_seed_tracks)[:5]
-            
-            if all_seed_tracks:
-                try:
-                    log_message(f"Using {len(all_seed_tracks)} seed tracks for Spotify recommendations...", 'yellow')
-                    log_message(f"Seed tracks: {all_seed_tracks}", 'yellow')
-                    
-                    # Validate seed tracks by checking if they exist
-                    valid_seed_tracks = []
-                    for track_id in all_seed_tracks:
-                        try:
-                            track_info = sp.track(track_id)
-                            if track_info and track_info.get('id'):
-                                valid_seed_tracks.append(track_id)
-                                log_message(f"Valid seed track: {track_info['name']} by {track_info['artists'][0]['name']}", 'green')
-                            else:
-                                log_message(f"Invalid seed track ID: {track_id}", 'yellow')
-                        except Exception as e:
-                            log_message(f"Could not validate seed track {track_id}: {e}", 'yellow')
-                    
-                    if not valid_seed_tracks:
-                        raise ValueError("No valid seed tracks found")
-                    
-                    log_message(f"Using {len(valid_seed_tracks)} valid seed tracks", 'green')
-                    
-                    # Try with list first, then string if that fails
-                    try:
-                        spotify_recs = sp.recommendations(seed_tracks=valid_seed_tracks, limit=min(100, remaining_count * 3))
-                    except:
-                        log_message("List format failed, trying comma-separated string...", 'yellow')
-                        seed_tracks_str = ','.join(valid_seed_tracks)
-                        spotify_recs = sp.recommendations(seed_tracks=seed_tracks_str, limit=min(100, remaining_count * 3))
-                    
-                    spotify_added = 0
-                    for track in spotify_recs['tracks']:
-                        if spotify_added >= remaining_count:
-                            break
-                            
-                        artist_name = track['artists'][0]['name'].lower()
-                        track_title = track['name'].lower()
-                        track_key = f"{track_title}|{artist_name}"
+                        
+                        track = track_item.item
+                        artist_name_lower = track.artist.name.lower()
+                        track_title_lower = track.title.lower()
+                        track_key = f"{track_title_lower}|{artist_name_lower}"
                         
                         # Skip various artists and live songs
-                        is_various_artists = 'various artists' in artist_name or 'va' == artist_name
-                        is_live = any(keyword in track_title for keyword in ['live', 'live at', 'live from', 'live in', 'live on', 'concert', 'acoustic version'])
+                        is_various_artists = 'various artists' in artist_name_lower or 'va' == artist_name_lower
+                        is_live = any(keyword in track_title_lower for keyword in ['live', 'live at', 'live from', 'live in', 'live on', 'concert', 'acoustic version'])
                         
-                        # Skip if we already have a song from this artist, this exact track, or if it's filtered content
-                        if (artist_name not in used_artists and 
+                        # FIXED: Ensure one track per artist - skip if we already have a song from this artist, this exact track, or if it's filtered content
+                        if (artist_name_lower not in used_artists and 
                             track_key not in used_tracks and 
                             not is_various_artists and 
                             not is_live):
-                            class SpotifyRecommendedTrack:
-                                def __init__(self, title, artist_name):
-                                    self.title = title
-                                    self.artist = type('Artist', (), {'name': artist_name})()
                             
-                            recommended_tracks.append(SpotifyRecommendedTrack(
-                                track['name'], 
-                                track['artists'][0]['name']
-                            ))
-                            used_artists.add(artist_name)
-                            used_tracks.add(track_key)
-                            spotify_added += 1
-                    
-                    log_message(f"Added {spotify_added} unique Spotify recommendations from {spotify_added} different artists", 'green')
-                        
+                            # Verify the track exists on Spotify
+                            try:
+                                search_results = sp.search(
+                                    q=f"track:{track.title} artist:{track.artist.name}", 
+                                    type="track", 
+                                    limit=1
+                                )
+                                if search_results["tracks"]["items"]:
+                                    class AIRecommendedTrack:
+                                        def __init__(self, title, artist_name):
+                                            self.title = title
+                                            self.artist = type('Artist', (), {'name': artist_name})()
+                                    
+                                    ai_artist_tracks.append(AIRecommendedTrack(
+                                        track.title, 
+                                        track.artist.name
+                                    ))
+                                    used_artists.add(artist_name_lower)
+                                    used_tracks.add(track_key)
+                            except Exception:
+                                continue
+                                
                 except Exception as e:
-                    log_message(f"Spotify recommendations failed: {e}", 'yellow')
+                    log_message(f"Could not get tracks for AI-recommended artist {artist_name}: {e}", 'yellow')
+                    continue
+            
+            recommended_tracks.extend(ai_artist_tracks)
+            log_message(f"Added {len(ai_artist_tracks)} unique tracks from AI-recommended artists", 'green')
+            
+            # 3. Get similar artist tracks from Last.fm (fill remaining 25%)
+            remaining_count = num_tracks - len(recommended_tracks)
+            if remaining_count > 0:
+                log_message(f"Getting {remaining_count} tracks from similar artists using Last.fm...", 'yellow')
+                
+                # Get similar artists based on user's loved tracks
+                similar_artist_tracks = []
+                sample_artists = random.sample(list(set([track['artist'] for track in loved_tracks_data])), min(5, len(loved_tracks_data)))
+                
+                for base_artist_name in sample_artists:
+                    if len(similar_artist_tracks) >= remaining_count:
+                        break
+                    try:
+                        base_artist = network.get_artist(base_artist_name)
+                        similar_artists = base_artist.get_similar(limit=5)
+                        
+                        for similar_artist_item in similar_artists:
+                            if len(similar_artist_tracks) >= remaining_count:
+                                break
+                            try:
+                                similar_artist = similar_artist_item.item
+                                top_tracks = similar_artist.get_top_tracks(limit=3)
+                                
+                                for track_item in top_tracks:
+                                    if len(similar_artist_tracks) >= remaining_count:
+                                        break
+                                    
+                                    track = track_item.item
+                                    artist_name_lower = track.artist.name.lower()
+                                    track_title_lower = track.title.lower()
+                                    track_key = f"{track_title_lower}|{artist_name_lower}"
+                                    
+                                    # Skip various artists and live songs
+                                    is_various_artists = 'various artists' in artist_name_lower or 'va' == artist_name_lower
+                                    is_live = any(keyword in track_title_lower for keyword in ['live', 'live at', 'live from', 'live in', 'live on', 'concert', 'acoustic version'])
+                                    
+                                    # Ensure one track per artist
+                                    if (artist_name_lower not in used_artists and 
+                                        track_key not in used_tracks and 
+                                        not is_various_artists and 
+                                        not is_live):
+                                        
+                                        # Verify the track exists on Spotify
+                                        try:
+                                            search_results = sp.search(
+                                                q=f"track:{track.title} artist:{track.artist.name}", 
+                                                type="track", 
+                                                limit=1
+                                            )
+                                            if search_results["tracks"]["items"]:
+                                                class SimilarArtistTrack:
+                                                    def __init__(self, title, artist_name):
+                                                        self.title = title
+                                                        self.artist = type('Artist', (), {'name': artist_name})()
+                                                
+                                                similar_artist_tracks.append(SimilarArtistTrack(
+                                                    track.title, 
+                                                    track.artist.name
+                                                ))
+                                                used_artists.add(artist_name_lower)
+                                                used_tracks.add(track_key)
+                                                break  # Only one track per similar artist
+                                        except Exception:
+                                            continue
+                            except Exception:
+                                continue
+                    except Exception as e:
+                        log_message(f"Could not get similar artists for {base_artist_name}: {e}", 'yellow')
+                        continue
+                
+                recommended_tracks.extend(similar_artist_tracks)
+                log_message(f"Added {len(similar_artist_tracks)} unique tracks from similar artists", 'green')
                     
             # Fill any remaining slots with more loved tracks (avoiding duplicates)
             if len(recommended_tracks) < num_tracks:
@@ -735,7 +764,7 @@ Focus on giving me the musical DNA and artist suggestions - I'll handle finding 
                     is_various_artists = 'various artists' in artist_name or 'va' == artist_name
                     is_live = any(keyword in track_title for keyword in ['live', 'live at', 'live from', 'live in', 'live on', 'concert', 'acoustic version'])
                     
-                    # Skip if we already have a song from this artist, this exact track, or if it's filtered content
+                    # FIXED: Ensure one track per artist - skip if we already have a song from this artist, this exact track, or if it's filtered content
                     if (artist_name not in used_artists and 
                         track_key not in used_tracks and 
                         not is_various_artists and 
@@ -768,13 +797,45 @@ def update_spotify_playlist(sp, playlist_id, tracks):
         track_uris = []
         not_found_count = 0 #Counts how many tracks were not found
         for track in tracks:
-            search_results = sp.search(
-                q=f"track:{track.title} artist:{track.artist.name}", type="track", limit=1
-            )
-            if search_results["tracks"]["items"]:
-                track_uri = search_results["tracks"]["items"][0]["uri"]
-                track_uris.append(track_uri)
-            else:
+            # Try multiple search strategies to improve match rate
+            search_queries = [
+                f"track:{track.title} artist:{track.artist.name}",
+                f"{track.title} {track.artist.name}",
+                f"artist:{track.artist.name} {track.title}",
+                track.title
+            ]
+            
+            track_found = False
+            for query in search_queries:
+                try:
+                    search_results = sp.search(q=query, type="track", limit=10)
+                    if search_results["tracks"]["items"]:
+                        # Look for best match by checking artist names
+                        best_match = None
+                        for result in search_results["tracks"]["items"]:
+                            for artist in result["artists"]:
+                                if (artist["name"].lower() == track.artist.name.lower() or 
+                                    track.artist.name.lower() in artist["name"].lower() or
+                                    artist["name"].lower() in track.artist.name.lower()):
+                                    best_match = result
+                                    break
+                            if best_match:
+                                break
+                        
+                        if best_match:
+                            track_uri = best_match["uri"]
+                            track_uris.append(track_uri)
+                            track_found = True
+                            break
+                        elif query == search_queries[-1]:  # Last query, use first result
+                            track_uri = search_results["tracks"]["items"][0]["uri"]
+                            track_uris.append(track_uri)
+                            track_found = True
+                            break
+                except Exception as e:
+                    continue
+            
+            if not track_found:
                 log_message(f"Track not found: {track.title} by {track.artist.name}", 'yellow')
                 not_found_count += 1
 
