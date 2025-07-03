@@ -185,16 +185,79 @@ def get_random_tracks_from_lastfm(network, num_tracks=100):
         
         log_message(f"Finished processing. Total loved tracks found: {len(all_tracks)}", 'green')
         
-        if len(all_tracks) < num_tracks:
-            log_message(f"Warning: Less than {num_tracks} loved tracks found. Using {len(all_tracks)} tracks.", 'yellow')
-            num_tracks = len(all_tracks)
+        # Use only 30% loved tracks for more variety
+        loved_count = int(num_tracks * 0.3)
+        if len(all_tracks) < loved_count:
+            log_message(f"Warning: Less than {loved_count} loved tracks found. Using {len(all_tracks)} tracks.", 'yellow')
+            loved_count = len(all_tracks)
 
-        log_message(f"Selecting {num_tracks} random tracks from {len(all_tracks)} total tracks...")
-        random_tracks = random.sample(all_tracks, num_tracks)
+        log_message(f"Selecting {loved_count} random tracks from {len(all_tracks)} total loved tracks...")
+        random_tracks = random.sample(all_tracks, loved_count)
+        
+        # Add similar artists recommendations to fill remaining slots
+        remaining_slots = num_tracks - loved_count
+        if remaining_slots > 0:
+            log_message(f"Getting {remaining_slots} additional tracks from similar artists...")
+            similar_tracks = get_similar_artist_tracks(network, all_tracks, remaining_slots)
+            if similar_tracks:
+                random_tracks.extend(similar_tracks)
+        
         return random_tracks
     except Exception as e:
         log_message(f"Error getting random tracks from Last.fm: {e}", 'red')
         return None
+
+
+def get_similar_artist_tracks(network, loved_tracks, num_tracks):
+    """Get tracks from similar artists based on user's loved tracks."""
+    try:
+        # Extract unique artists from loved tracks
+        artists = list(set([track.artist.name for track in loved_tracks]))
+        random.shuffle(artists)
+        
+        similar_tracks = []
+        used_artists = set()
+        
+        # Get similar artists for a sample of user's artists
+        for artist_name in artists[:20]:  # Limit to prevent API overload
+            if len(similar_tracks) >= num_tracks:
+                break
+                
+            try:
+                artist = network.get_artist(artist_name)
+                similar_artists = artist.get_similar(limit=5)
+                
+                for similar_artist in similar_artists:
+                    if len(similar_tracks) >= num_tracks:
+                        break
+                    
+                    similar_artist_name = similar_artist.item.name
+                    if similar_artist_name.lower() not in used_artists:
+                        try:
+                            top_tracks = similar_artist.item.get_top_tracks(limit=3)
+                            for track in top_tracks:
+                                if len(similar_tracks) >= num_tracks:
+                                    break
+                                
+                                # Filter out live tracks
+                                track_title = track.title.lower()
+                                is_live = any(keyword in track_title for keyword in 
+                                            ['live', 'live at', 'live from', 'live in', 'live on', 'concert', 'acoustic version'])
+                                
+                                if not is_live:
+                                    similar_tracks.append(track)
+                                    used_artists.add(similar_artist_name.lower())
+                                    break
+                        except Exception:
+                            continue
+            except Exception:
+                continue
+        
+        log_message(f"Found {len(similar_tracks)} similar artist tracks", 'green')
+        return similar_tracks
+    except Exception as e:
+        log_message(f"Error getting similar artist tracks: {e}", 'yellow')
+        return []
 
 
 def get_lastfm_recommendations(sp, network, num_tracks=100):
@@ -214,13 +277,23 @@ def get_lastfm_recommendations(sp, network, num_tracks=100):
         random.shuffle(artists_list)
         log_message(f"Found {len(artists_list)} unique artists from loved tracks")
         
-        # Get similar artists for a few random seed artists
-        recommended_tracks = []
+        # First, add some loved tracks (25% of total)
+        loved_tracks_list = []
+        for item in loved_tracks:
+            loved_tracks_list.append(item.track)
+        
+        loved_count = int(num_tracks * 0.25)
+        recommended_tracks = random.sample(loved_tracks_list, min(loved_count, len(loved_tracks_list)))
+        log_message(f"Added {len(recommended_tracks)} loved tracks ({len(recommended_tracks)}/{num_tracks})")
+        
+        # Get similar artists for remaining slots
+        remaining_slots = num_tracks - len(recommended_tracks)
+        similar_tracks = []
         seed_artists_used = 0
         max_seed_artists = 5  # Use up to 5 seed artists
         
         for artist_name in artists_list[:max_seed_artists]:
-            if len(recommended_tracks) >= num_tracks:
+            if len(similar_tracks) >= remaining_slots:
                 break
                 
             try:
@@ -230,7 +303,7 @@ def get_lastfm_recommendations(sp, network, num_tracks=100):
                 
                 # Get top tracks from similar artists
                 for similar_artist in similar_artists:
-                    if len(recommended_tracks) >= num_tracks:
+                    if len(similar_tracks) >= remaining_slots:
                         break
                     
                     try:
@@ -238,7 +311,7 @@ def get_lastfm_recommendations(sp, network, num_tracks=100):
                         top_tracks = similar_artist.item.get_top_tracks(limit=5)
                         
                         for track_item in top_tracks:
-                            if len(recommended_tracks) >= num_tracks:
+                            if len(similar_tracks) >= remaining_slots:
                                 break
                             
                             track = track_item.item
@@ -260,13 +333,13 @@ def get_lastfm_recommendations(sp, network, num_tracks=100):
                                         self.title = title
                                         self.artist = type('Artist', (), {'name': artist_name})()
                                 
-                                recommended_tracks.append(RecommendedTrack(
+                                similar_tracks.append(RecommendedTrack(
                                     track.title, 
                                     track.artist.name
                                 ))
                                 
-                                if len(recommended_tracks) % 10 == 0:
-                                    log_message(f"Found {len(recommended_tracks)} recommendations so far...")
+                                if len(similar_tracks) % 10 == 0:
+                                    log_message(f"Found {len(similar_tracks)} similar tracks so far...")
                     
                     except Exception as track_error:
                         # Skip this artist if we can't get their tracks
@@ -278,6 +351,9 @@ def get_lastfm_recommendations(sp, network, num_tracks=100):
             except Exception as artist_error:
                 log_message(f"Could not process artist {artist_name}: {artist_error}", 'yellow')
                 continue
+        
+        # Combine loved tracks with similar tracks
+        recommended_tracks.extend(similar_tracks)
         
         if not recommended_tracks:
             log_message("No recommendations found. Falling back to random loved tracks.", 'yellow')
@@ -500,8 +576,8 @@ Focus on giving me the musical DNA and artist suggestions - I'll handle finding 
             used_artists = set()
             used_tracks = set()
             
-            # 1. Include some actual loved tracks (40% of total)
-            loved_count = int(num_tracks * 0.4)
+            # 1. Include some actual loved tracks (20% of total for more variety)
+            loved_count = int(num_tracks * 0.2)
             log_message(f"Adding {loved_count} tracks from your loved collection...", 'yellow')
             
             # Shuffle loved tracks to ensure variety
@@ -578,8 +654,33 @@ Focus on giving me the musical DNA and artist suggestions - I'll handle finding 
             if all_seed_tracks:
                 try:
                     log_message(f"Using {len(all_seed_tracks)} seed tracks for Spotify recommendations...", 'yellow')
-                    # Request more than needed to account for duplicates
-                    spotify_recs = sp.recommendations(seed_tracks=all_seed_tracks, limit=min(100, remaining_count * 3))
+                    log_message(f"Seed tracks: {all_seed_tracks}", 'yellow')
+                    
+                    # Validate seed tracks by checking if they exist
+                    valid_seed_tracks = []
+                    for track_id in all_seed_tracks:
+                        try:
+                            track_info = sp.track(track_id)
+                            if track_info and track_info.get('id'):
+                                valid_seed_tracks.append(track_id)
+                                log_message(f"Valid seed track: {track_info['name']} by {track_info['artists'][0]['name']}", 'green')
+                            else:
+                                log_message(f"Invalid seed track ID: {track_id}", 'yellow')
+                        except Exception as e:
+                            log_message(f"Could not validate seed track {track_id}: {e}", 'yellow')
+                    
+                    if not valid_seed_tracks:
+                        raise ValueError("No valid seed tracks found")
+                    
+                    log_message(f"Using {len(valid_seed_tracks)} valid seed tracks", 'green')
+                    
+                    # Try with list first, then string if that fails
+                    try:
+                        spotify_recs = sp.recommendations(seed_tracks=valid_seed_tracks, limit=min(100, remaining_count * 3))
+                    except:
+                        log_message("List format failed, trying comma-separated string...", 'yellow')
+                        seed_tracks_str = ','.join(valid_seed_tracks)
+                        spotify_recs = sp.recommendations(seed_tracks=seed_tracks_str, limit=min(100, remaining_count * 3))
                     
                     spotify_added = 0
                     for track in spotify_recs['tracks']:
