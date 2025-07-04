@@ -19,7 +19,7 @@ try:
 except ImportError:
     genai = None
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 load_dotenv()
 
@@ -371,6 +371,359 @@ def get_lastfm_recommendations(sp, network, num_tracks=100):
         log_message(f"Error getting Last.fm recommendations: {str(e)}", 'red')
         log_message(f"Traceback: {traceback.format_exc()}", 'red')
         return None
+
+
+def get_recent_listening_context(network):
+    """Analyze recent Last.fm listening patterns to determine current music preferences."""
+    try:
+        user = network.get_user(LASTFM_USERNAME)
+        
+        # Get recent tracks (last 500 plays to ensure we get enough recent data)
+        log_message("Fetching recent tracks from Last.fm...", 'yellow')
+        recent_tracks = user.get_recent_tracks(limit=500)
+        
+        recent_artists = []
+        recent_genres = []
+        artist_counts = Counter()
+        
+        # Filter to last 7 days
+        import time
+        from datetime import datetime, timedelta
+        seven_days_ago = datetime.now() - timedelta(days=7)
+        seven_days_ago_timestamp = int(seven_days_ago.timestamp())
+        
+        tracks_processed = 0
+        tracks_in_timeframe = 0
+        
+        log_message("Processing recent tracks and filtering to last 7 days...", 'yellow')
+        
+        for track_item in recent_tracks:
+            tracks_processed += 1
+            track = track_item.track
+            
+            # Check if track has timestamp and is within last 7 days
+            try:
+                # Get the timestamp of when the track was played
+                timestamp = getattr(track_item, 'timestamp', None)
+                if timestamp:
+                    track_time = int(timestamp)
+                    if track_time < seven_days_ago_timestamp:
+                        # Skip tracks older than 7 days
+                        continue
+                tracks_in_timeframe += 1
+            except:
+                # If we can't get timestamp, include it (better to include than exclude)
+                tracks_in_timeframe += 1
+            
+            artist_name = track.artist.name
+            recent_artists.append(artist_name)
+            artist_counts[artist_name] += 1
+            
+            # Try to get genre/tags for the artist (but limit to save API calls)
+            if artist_name not in [a for a, c in artist_counts.most_common(20)]:
+                continue
+                
+            try:
+                artist = network.get_artist(artist_name)
+                tags = artist.get_top_tags(limit=3)
+                for tag in tags:
+                    recent_genres.append(tag.item.name.lower())
+            except:
+                continue
+        
+        log_message(f"Processed {tracks_processed} recent tracks, {tracks_in_timeframe} from last 7 days", 'green')
+        
+        # Get top recent artists and genres
+        top_recent_artists = [artist for artist, count in artist_counts.most_common(15)]
+        top_recent_genres = [genre for genre, count in Counter(recent_genres).most_common(8)]
+        
+        # Debug: Show detailed counts
+        top_artist_counts = artist_counts.most_common(10)
+        log_message(f"Top recent artists with counts: {', '.join([f'{artist}({count})' for artist, count in top_artist_counts])}", 'yellow')
+        log_message(f"Recent listening context: {len(top_recent_artists)} artists, {len(top_recent_genres)} genres", 'green')
+        log_message(f"Top recent artists: {', '.join(top_recent_artists[:8])}", 'yellow')
+        log_message(f"Top recent genres: {', '.join(top_recent_genres)}", 'yellow')
+        
+        return {
+            'recent_artists': top_recent_artists,
+            'recent_genres': top_recent_genres,
+            'artist_counts': dict(artist_counts)
+        }
+        
+    except Exception as e:
+        log_message(f"Error analyzing recent listening context: {e}", 'yellow')
+        return {'recent_artists': [], 'recent_genres': [], 'artist_counts': {}}
+
+
+def get_clustered_loved_tracks(network, recent_context):
+    """Cluster loved tracks by genre/mood/era for coherent selection."""
+    try:
+        user = network.get_user(LASTFM_USERNAME)
+        loved_tracks = user.get_loved_tracks(limit=None)
+        
+        # Organize tracks by artist and add metadata
+        clustered_tracks = {
+            'recent_favorites': [],  # Artists from recent listening
+            'genre_clusters': defaultdict(list),  # Tracks by genre
+            'discovery_candidates': [],  # Less played artists for discovery
+            'classics': []  # High playcount tracks
+        }
+        
+        track_count = 0
+        processed_artists = set()
+        
+        log_message("Clustering loved tracks by genre and recency...", 'yellow')
+        
+        for track_item in loved_tracks:
+            track = track_item.track
+            track_count += 1
+            
+            # Progress updates
+            if track_count % 1000 == 0:
+                log_message(f"Processed {track_count} tracks for clustering...", 'yellow')
+            
+            artist_name = track.artist.name
+            track_data = {
+                'title': track.title,
+                'artist': artist_name,
+                'playcount': getattr(track, 'playcount', 0) or 0
+            }
+            
+            # Skip if we already processed this artist (one track per artist for coherence)
+            if artist_name.lower() in processed_artists:
+                continue
+            
+            processed_artists.add(artist_name.lower())
+            
+            # Categorize based on recent listening patterns
+            if artist_name in recent_context['recent_artists']:
+                clustered_tracks['recent_favorites'].append(track_data)
+            elif track_data['playcount'] > 100:  # High playcount = classics
+                clustered_tracks['classics'].append(track_data)
+            else:
+                clustered_tracks['discovery_candidates'].append(track_data)
+            
+            # Try to get genre information
+            try:
+                artist = network.get_artist(artist_name)
+                tags = artist.get_top_tags(limit=2)
+                for tag in tags:
+                    genre = tag.item.name.lower()
+                    if genre in recent_context['recent_genres'] or any(g in genre for g in recent_context['recent_genres']):
+                        clustered_tracks['genre_clusters'][genre].append(track_data)
+                        break
+            except:
+                continue
+        
+        # Log cluster sizes
+        log_message(f"Clustering complete - Recent favorites: {len(clustered_tracks['recent_favorites'])}, "
+                   f"Classics: {len(clustered_tracks['classics'])}, "
+                   f"Discovery: {len(clustered_tracks['discovery_candidates'])}", 'green')
+        
+        return clustered_tracks
+        
+    except Exception as e:
+        log_message(f"Error clustering loved tracks: {e}", 'red')
+        return {'recent_favorites': [], 'genre_clusters': defaultdict(list), 'discovery_candidates': [], 'classics': []}
+
+
+def create_coherent_mix(sp, network, clustered_tracks, recent_context, num_tracks):
+    """Create a coherent mix that balances familiar and new while maintaining genre/mood consistency."""
+    try:
+        coherent_tracks = []
+        used_artists = set()
+        
+        # Strategy: Build coherent "sessions" rather than random mixing
+        
+        # 1. Start with recent favorites (40% - what you've been listening to lately)
+        recent_count = int(num_tracks * 0.4)
+        log_message(f"Adding {recent_count} tracks from recent favorites...", 'yellow')
+        
+        recent_tracks = clustered_tracks['recent_favorites'][:recent_count]
+        for track_data in recent_tracks:
+            artist_name = track_data['artist'].lower()
+            if artist_name not in used_artists:
+                if is_track_suitable(track_data):
+                    class CoherentTrack:
+                        def __init__(self, title, artist_name):
+                            self.title = title
+                            self.artist = type('Artist', (), {'name': artist_name})()
+                    
+                    coherent_tracks.append(CoherentTrack(track_data['title'], track_data['artist']))
+                    used_artists.add(artist_name)
+        
+        # 2. Add genre-cohesive tracks (30% - maintain mood consistency)
+        genre_count = int(num_tracks * 0.3)
+        log_message(f"Adding {genre_count} genre-cohesive tracks...", 'yellow')
+        
+        # Focus on genres from recent listening
+        for genre in recent_context['recent_genres']:
+            if len(coherent_tracks) >= recent_count + genre_count:
+                break
+            
+            genre_tracks = clustered_tracks['genre_clusters'].get(genre, [])
+            for track_data in genre_tracks:
+                if len(coherent_tracks) >= recent_count + genre_count:
+                    break
+                    
+                artist_name = track_data['artist'].lower()
+                if artist_name not in used_artists:
+                    if is_track_suitable(track_data):
+                        coherent_tracks.append(CoherentTrack(track_data['title'], track_data['artist']))
+                        used_artists.add(artist_name)
+        
+        # 3. Add discovery tracks from similar artists (20% - new but coherent)
+        discovery_count = int(num_tracks * 0.2)
+        log_message(f"Adding {discovery_count} discovery tracks from similar artists...", 'yellow')
+        
+        # Get similar artists based on recent favorites
+        similar_tracks = get_coherent_similar_tracks(sp, network, recent_context['recent_artists'][:5], 
+                                                    used_artists, discovery_count)
+        coherent_tracks.extend(similar_tracks)
+        
+        # 4. Fill remaining with classics (10% - timeless favorites)
+        remaining_count = num_tracks - len(coherent_tracks)
+        if remaining_count > 0:
+            log_message(f"Filling {remaining_count} remaining slots with classics...", 'yellow')
+            
+            classics = clustered_tracks['classics']
+            random.shuffle(classics)
+            
+            for track_data in classics:
+                if len(coherent_tracks) >= num_tracks:
+                    break
+                    
+                artist_name = track_data['artist'].lower()
+                if artist_name not in used_artists:
+                    if is_track_suitable(track_data):
+                        coherent_tracks.append(CoherentTrack(track_data['title'], track_data['artist']))
+                        used_artists.add(artist_name)
+        
+        log_message(f"Created coherent mix with {len(coherent_tracks)} tracks from {len(used_artists)} unique artists", 'green')
+        return coherent_tracks
+        
+    except Exception as e:
+        log_message(f"Error creating coherent mix: {e}", 'red')
+        return []
+
+
+def get_coherent_similar_tracks(sp, network, seed_artists, used_artists, target_count):
+    """Get tracks from similar artists that maintain genre/mood coherence."""
+    try:
+        similar_tracks = []
+        
+        for seed_artist in seed_artists:
+            if len(similar_tracks) >= target_count:
+                break
+                
+            try:
+                artist = network.get_artist(seed_artist)
+                similar_artists = artist.get_similar(limit=3)
+                
+                for similar_artist_item in similar_artists:
+                    if len(similar_tracks) >= target_count:
+                        break
+                        
+                    similar_artist = similar_artist_item.item
+                    artist_name_lower = similar_artist.name.lower()
+                    
+                    if artist_name_lower not in used_artists:
+                        top_tracks = similar_artist.get_top_tracks(limit=1)
+                        
+                        for track_item in top_tracks:
+                            track = track_item.item
+                            track_data = {
+                                'title': track.title,
+                                'artist': track.artist.name
+                            }
+                            
+                            if is_track_suitable(track_data):
+                                # Verify track exists on Spotify
+                                try:
+                                    search_results = sp.search(
+                                        q=f"track:{track.title} artist:{track.artist.name}",
+                                        type="track",
+                                        limit=1
+                                    )
+                                    if search_results["tracks"]["items"]:
+                                        class SimilarTrack:
+                                            def __init__(self, title, artist_name):
+                                                self.title = title
+                                                self.artist = type('Artist', (), {'name': artist_name})()
+                                        
+                                        similar_tracks.append(SimilarTrack(track.title, track.artist.name))
+                                        used_artists.add(artist_name_lower)
+                                        break
+                                except:
+                                    continue
+                            break
+                            
+            except Exception:
+                continue
+        
+        return similar_tracks
+        
+    except Exception as e:
+        log_message(f"Error getting coherent similar tracks: {e}", 'yellow')
+        return []
+
+
+def is_track_suitable(track_data):
+    """Smart filtering to ensure track quality and coherence."""
+    title = track_data['title'].lower()
+    artist = track_data['artist'].lower()
+    
+    # Filter out problematic content
+    unsuitable_keywords = [
+        'live', 'live at', 'live from', 'live in', 'live on', 
+        'concert', 'acoustic version', 'demo', 'rehearsal',
+        'interview', 'spoken word', 'various artists', 'va'
+    ]
+    
+    # Check title and artist
+    if any(keyword in title for keyword in unsuitable_keywords):
+        return False
+    
+    if any(keyword in artist for keyword in unsuitable_keywords):
+        return False
+    
+    # Filter out very short or very long titles (likely incomplete or messy data)
+    if len(track_data['title']) < 2 or len(track_data['title']) > 100:
+        return False
+    
+    return True
+
+
+def get_coherent_my_station_recommendations(sp, network, history_analysis, num_tracks=100):
+    """
+    Creates a coherent My Station experience that reduces messiness by:
+    1. Analyzing recent Last.fm listening patterns for context
+    2. Clustering tracks by genre/mood/era for coherence
+    3. Smart filtering to avoid live tracks, duplicates, and maintain consistency
+    4. Temporal weighting to prioritize recently played genres/artists
+    """
+    try:
+        log_message("Creating coherent My Station recommendations...", 'green')
+        
+        # Get recent listening context from Last.fm
+        log_message("Analyzing recent Last.fm listening patterns...", 'yellow')
+        recent_context = get_recent_listening_context(network)
+        
+        # Get and cluster loved tracks
+        log_message("Fetching and clustering your loved tracks collection...", 'yellow')
+        clustered_tracks = get_clustered_loved_tracks(network, recent_context)
+        
+        # Create coherent mix
+        log_message("Creating coherent mix based on recent listening patterns...", 'yellow')
+        coherent_tracks = create_coherent_mix(sp, network, clustered_tracks, recent_context, num_tracks)
+        
+        log_message(f"Generated {len(coherent_tracks)} coherent My Station tracks", 'green')
+        return coherent_tracks
+        
+    except Exception as e:
+        log_message(f"Error getting coherent recommendations: {e}", 'red')
+        log_message("Falling back to standard AI recommendations...", 'yellow')
+        return get_ai_hybrid_recommendations(sp, network, history_analysis, num_tracks)
 
 
 def get_ai_hybrid_recommendations(sp, network, history_analysis, num_tracks=100):
@@ -883,13 +1236,15 @@ def log_message(message, color=None):
         f.write(log_entry)
 
 
-def job(use_recommended=False, use_ai=False, playlist_id=None):
+def job(use_recommended=False, use_ai=False, use_coherency=False, playlist_id=None):
     target_playlist_id = playlist_id or SPOTIFY_PLAYLIST_ID
     log_message(f"Starting playlist update job (version {__version__})...", 'yellow')
     log_message(f"Target playlist ID: {target_playlist_id}")
     log_message(f"Requesting {NUMBER_OF_TRACKS} tracks from Last.fm user: {LASTFM_USERNAME}")
     
-    mode = "AI-powered My Station" if use_ai else ("Recommended" if use_recommended else "Random")
+    mode = ("Coherent My Station" if use_coherency else 
+            "AI-powered My Station" if use_ai else 
+            "Recommended" if use_recommended else "Random")
     log_message(f"Mode: {mode} tracks")
     
     log_message("Authenticating with Last.fm...")
@@ -906,7 +1261,12 @@ def job(use_recommended=False, use_ai=False, playlist_id=None):
         return
     log_message("Spotify authentication successful.", 'green')
 
-    if use_ai:
+    if use_coherency:
+        log_message("Analyzing listening history for coherent My Station recommendations...")
+        history_analysis = analyze_listening_history()
+        log_message("Generating coherent My Station recommendations...")
+        tracks = get_coherent_my_station_recommendations(spotify_client, lastfm_network, history_analysis, NUMBER_OF_TRACKS)
+    elif use_ai:
         log_message("Analyzing listening history for AI recommendations...")
         history_analysis = analyze_listening_history()
         log_message("Generating AI-powered hybrid My Station recommendations...")
@@ -935,8 +1295,10 @@ if __name__ == "__main__":
                        help='Use recommended mode (less played + newer tracks) instead of random selection')
     parser.add_argument('--ai', action='store_true',
                        help='Use AI-powered My Station mode (mimics Apple Music My Station with familiar favorites + discoveries)')
+    parser.add_argument('--coherency-based', action='store_true',
+                       help='Use coherency-based My Station mode (creates coherent playlists based on recent listening patterns, reduces messiness from large collections)')
     parser.add_argument('--playlist', type=str,
                        help='Spotify playlist ID to update (overrides environment variable)')
     
     args = parser.parse_args()
-    job(use_recommended=args.recommended, use_ai=args.ai, playlist_id=args.playlist)
+    job(use_recommended=args.recommended, use_ai=args.ai, use_coherency=getattr(args, 'coherency_based', False), playlist_id=args.playlist)

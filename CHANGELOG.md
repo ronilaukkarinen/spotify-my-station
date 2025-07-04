@@ -1,3 +1,7 @@
+### 1.3.0: 2025-07-04
+
+* Add `--coherency-based` flag which takes into account top artists this week
+
 ### 1.2.0: 2025-07-04
 
 * Replace deprecated Spotify recommendations API with Last.fm-based approach

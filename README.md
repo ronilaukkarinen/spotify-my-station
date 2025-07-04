@@ -1,6 +1,6 @@
 # 🎵 Spotify My Station
 
-![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54) ![Spotify](https://img.shields.io/badge/Spotify-1DB954?style=for-the-badge&logo=spotify&logoColor=white) ![Last.fm](https://img.shields.io/badge/last.fm-D51007?style=for-the-badge&logo=last.fm&logoColor=white) ![Chagtgpt](https://img.shields.io/badge/OpenAI-74aa9c?style=for-the-badge&logo=openai&logoColor=white) ![Google Gemini](https://img.shields.io/badge/Google%20Gemini-4285F4?style=for-the-badge&logo=google&logoColor=white) ![Version](https://img.shields.io/badge/version-1.2.0-blue?style=for-the-badge)
+![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54) ![Spotify](https://img.shields.io/badge/Spotify-1DB954?style=for-the-badge&logo=spotify&logoColor=white) ![Last.fm](https://img.shields.io/badge/last.fm-D51007?style=for-the-badge&logo=last.fm&logoColor=white) ![Chagtgpt](https://img.shields.io/badge/OpenAI-74aa9c?style=for-the-badge&logo=openai&logoColor=white) ![Google Gemini](https://img.shields.io/badge/Google%20Gemini-4285F4?style=for-the-badge&logo=google&logoColor=white) ![Version](https://img.shields.io/badge/version-1.3.0-blue?style=for-the-badge)
 
 ![image](https://github.com/user-attachments/assets/6c3e1c17-483e-450f-ae59-60564c69548b)
 
@@ -156,6 +156,24 @@ Uses OpenAI or Google Gemini AI to create a personalized "My Station" playlist s
 - 50% tracks from AI-recommended artists based on your taste analysis
 - 25% songs from similar artists discovered via Last.fm recommendations
 
+### Coherency-Based My Station Mode
+```bash
+python spotify-my-station.py --coherency-based
+```
+**Perfect for users with large, diverse music collections (20+ years)!** This mode creates coherent playlists that reduce "messiness" by:
+- Analyzing your recent Last.fm listening patterns to understand current preferences
+- Clustering your loved tracks by genre, mood, and era for coherent selection
+- Smart filtering to avoid live tracks, duplicates, and maintain musical consistency
+- Temporal weighting to prioritize recently played genres/artists
+
+**Coherent Mix Strategy:**
+- 40% tracks from artists you've been listening to recently (current favorites)
+- 30% tracks from similar genres/moods to maintain coherence
+- 20% discovery tracks from similar artists (new but coherent with your taste)
+- 10% classic tracks from your collection (timeless favorites)
+
+This mode is ideal if you find regular AI mode too chaotic with your diverse music collection.
+
 ### Custom Playlist
 ```bash
 python spotify-my-station.py --playlist PLAYLIST_ID
@@ -166,8 +184,9 @@ Updates a specific playlist instead of the default one from environment variable
 ```bash
 python spotify-my-station.py --recommended --playlist PLAYLIST_ID
 python spotify-my-station.py --ai --playlist PLAYLIST_ID
+python spotify-my-station.py --coherency-based --playlist PLAYLIST_ID
 ```
-Uses recommended or AI mode on a specific playlist.
+Uses recommended, AI, or coherency-based mode on a specific playlist.
 
 ### Help
 ```bash
@@ -186,7 +205,8 @@ To run the script automatically every hour:
 
 2. Add this line:
    ```bash
-   0 * * * * cd /home/rolle/spotify-my-station && /home/rolle/spotify-my-station/venv/bin/python spotify-my-station.py >> /dev/null 2>&1
+   # Spotify My Station
+   0 * * * * cd /home/rolle/spotify-my-station && /home/rolle/spotify-my-station/venv/bin/python spotify-my-station.py --ai --coherency-based --playlist xxxxxxxxxxx >> /dev/null 2>&1
    ```
 
 ## Configuration
