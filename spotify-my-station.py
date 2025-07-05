@@ -46,16 +46,7 @@ NUMBER_OF_TRACKS = int(os.getenv("NUMBER_OF_TRACKS", "100"))
 RANDOMITY_FACTOR = int(os.getenv("RANDOMITY_FACTOR", "50"))  # 0-100 scale
 
 # --- Functions ---
-def load_playlist_history():
-    """Load history of recently used tracks and artists to avoid repetition."""
-    try:
-        if os.path.exists(HISTORY_FILE):
-            with open(HISTORY_FILE, 'r') as f:
-                return json.load(f)
-        return {"recent_tracks": [], "recent_artists": [], "last_updated": None}
-    except Exception as e:
-        log_message(f"Error loading playlist history: {e}", 'yellow')
-        return {"recent_tracks": [], "recent_artists": [], "last_updated": None}
+# Playlist history loading removed - using only Last.fm data for freshness
 
 
 def load_banned_items():
@@ -116,26 +107,45 @@ def save_playlist_history(tracks):
     """Save current playlist tracks to history to avoid repetition in future runs."""
     try:
         history = load_playlist_history()
+        banned_items = load_banned_items()
         
-        # Add current tracks to history
+        # Add current tracks to history (excluding banned items)
         current_tracks = []
         current_artists = []
         
         for track in tracks:
-            track_key = f"{track.title.lower()}|{track.artist.name.lower()}"
-            current_tracks.append(track_key)
-            current_artists.append(track.artist.name.lower())
+            # Double-check that we're not saving banned items
+            if not is_banned_item(track.title, track.artist.name, None, banned_items):
+                track_key = f"{track.title.lower()}|{track.artist.name.lower()}"
+                current_tracks.append(track_key)
+                current_artists.append(track.artist.name.lower())
         
-        # Keep only last 3 runs worth of history (300 tracks max)
-        max_history = NUMBER_OF_TRACKS * 3
+        # Keep only last 1.5 runs worth of history for better variety (150 tracks max)
+        max_history = int(NUMBER_OF_TRACKS * 1.5)
         
         # Combine with existing history
         all_tracks = current_tracks + history.get("recent_tracks", [])
         all_artists = current_artists + history.get("recent_artists", [])
         
+        # Remove duplicates while preserving order
+        seen_tracks = set()
+        seen_artists = set()
+        unique_tracks = []
+        unique_artists = []
+        
+        for track in all_tracks:
+            if track not in seen_tracks:
+                unique_tracks.append(track)
+                seen_tracks.add(track)
+        
+        for artist in all_artists:
+            if artist not in seen_artists:
+                unique_artists.append(artist)
+                seen_artists.add(artist)
+        
         # Trim to max history
-        history["recent_tracks"] = all_tracks[:max_history]
-        history["recent_artists"] = all_artists[:max_history]
+        history["recent_tracks"] = unique_tracks[:max_history]
+        history["recent_artists"] = unique_artists[:max_history]
         history["last_updated"] = datetime.now().isoformat()
         
         with open(HISTORY_FILE, 'w') as f:
@@ -147,13 +157,59 @@ def save_playlist_history(tracks):
         log_message(f"Error saving playlist history: {e}", 'yellow')
 
 
-def is_recently_used(track_title, artist_name, history):
-    """Check if a track or artist was recently used."""
-    track_key = f"{track_title.lower()}|{artist_name.lower()}"
-    artist_key = artist_name.lower()
-    
-    return (track_key in history.get("recent_tracks", []) or 
-            artist_key in history.get("recent_artists", []))
+def cleanup_old_history():
+    """Clean up old history entries to prevent feedback loops and remove banned items."""
+    try:
+        history = load_playlist_history()
+        banned_items = load_banned_items()
+        
+        cleaned_tracks = []
+        cleaned_artists = []
+        removed_count = 0
+        
+        # Clean banned items from history
+        for track_key in history.get("recent_tracks", []):
+            if '|' in track_key:
+                track_title, artist_name = track_key.split('|', 1)
+                if not is_banned_item(track_title, artist_name, None, banned_items):
+                    cleaned_tracks.append(track_key)
+                else:
+                    removed_count += 1
+            else:
+                cleaned_tracks.append(track_key)
+        
+        # Clean banned artists from history
+        for artist_key in history.get("recent_artists", []):
+            if not is_banned_item('', artist_key, None, banned_items):
+                cleaned_artists.append(artist_key)
+            else:
+                removed_count += 1
+        
+        # Check if history is too large (indicates feedback loop)
+        if len(cleaned_tracks) > 200:
+            log_message("Detected large history file, cleaning up to prevent feedback loops...", 'yellow')
+            # Keep only the most recent entries
+            max_tracks = int(NUMBER_OF_TRACKS * 1.5)
+            cleaned_tracks = cleaned_tracks[:max_tracks]
+            cleaned_artists = cleaned_artists[:max_tracks]
+        
+        # Update history
+        history["recent_tracks"] = cleaned_tracks
+        history["recent_artists"] = cleaned_artists
+        
+        # Save cleaned history
+        with open(HISTORY_FILE, 'w') as f:
+            json.dump(history, f, indent=2)
+        
+        if removed_count > 0:
+            log_message(f"Removed {removed_count} banned items from history.", 'green')
+        log_message("History cleanup completed.", 'green')
+        
+    except Exception as e:
+        log_message(f"Error cleaning up history: {e}", 'red')
+
+
+# is_recently_used function removed - history system eliminated for better variety
 
 
 def is_banned_item(track_title, artist_name, album_name, banned_items):
@@ -178,24 +234,40 @@ def is_banned_item(track_title, artist_name, album_name, banned_items):
 
 
 def apply_randomity(tracks_list, randomity_factor):
-    """Apply randomity factor to track selection (0=most predictable, 100=most random)."""
+    """Apply randomity factor to track selection with improved variety."""
     if randomity_factor == 0:
         return tracks_list  # No randomization
-    elif randomity_factor == 100:
-        random.shuffle(tracks_list)  # Full randomization
+    elif randomity_factor >= 80:
+        # High randomization: full shuffle with some weighted selection
+        random.shuffle(tracks_list)
         return tracks_list
     else:
-        # Partial randomization: shuffle in chunks
-        chunk_size = max(1, int(len(tracks_list) * (1 - randomity_factor / 100)))
-        chunks = [tracks_list[i:i + chunk_size] for i in range(0, len(tracks_list), chunk_size)]
+        # Improved partial randomization: smaller chunks for more variety
+        chunk_size = max(2, int(len(tracks_list) * (1 - randomity_factor / 100) * 0.5))  # Smaller chunks
         
-        # Shuffle within each chunk, then shuffle chunks
+        # Create overlapping chunks for better mixing
+        chunks = []
+        for i in range(0, len(tracks_list), chunk_size // 2):
+            chunk_end = min(i + chunk_size, len(tracks_list))
+            if i < len(tracks_list):
+                chunks.append(tracks_list[i:chunk_end])
+        
+        # Shuffle within each chunk and shuffle chunks
         for chunk in chunks:
             random.shuffle(chunk)
         random.shuffle(chunks)
         
-        # Flatten back to list
-        return [track for chunk in chunks for track in chunk]
+        # Flatten and remove duplicates while preserving order
+        result = []
+        seen = set()
+        for chunk in chunks:
+            for track in chunk:
+                track_key = f"{track.title.lower()}|{track.artist.name.lower()}"
+                if track_key not in seen:
+                    result.append(track)
+                    seen.add(track_key)
+        
+        return result[:len(tracks_list)]  # Return original length
 
 
 def authenticate_lastfm():
@@ -340,14 +412,26 @@ def get_random_tracks_from_lastfm(network, num_tracks=100, randomity_factor=50):
         
         log_message(f"Finished processing. Total loved tracks found: {len(all_tracks)}", 'green')
         
-        # Use only 30% loved tracks for more variety
-        loved_count = int(num_tracks * 0.3)
+        # Use only 20% loved tracks for maximum variety
+        loved_count = int(num_tracks * 0.2)
         if len(all_tracks) < loved_count:
             log_message(f"Warning: Less than {loved_count} loved tracks found. Using {len(all_tracks)} tracks.", 'yellow')
             loved_count = len(all_tracks)
 
         log_message(f"Selecting {loved_count} random tracks from {len(all_tracks)} total loved tracks...")
-        random_tracks = random.sample(all_tracks, loved_count)
+        
+        # Improved selection: avoid recently played tracks from the start
+        playlist_history = load_playlist_history()
+        filtered_tracks = []
+        for track in all_tracks:
+            if not is_recently_used(track.title, track.artist.name, playlist_history):
+                filtered_tracks.append(track)
+        
+        # If we have enough filtered tracks, use them; otherwise fall back to all tracks
+        selection_pool = filtered_tracks if len(filtered_tracks) >= loved_count else all_tracks
+        log_message(f"Using {len(selection_pool)} tracks from selection pool (filtered: {len(filtered_tracks)})")
+        
+        random_tracks = random.sample(selection_pool, min(loved_count, len(selection_pool)))
         
         # Add similar artists recommendations to fill remaining slots
         remaining_slots = num_tracks - loved_count
@@ -378,14 +462,15 @@ def get_similar_artist_tracks(network, loved_tracks, num_tracks):
         similar_tracks = []
         used_artists = set()
         
-        # Get similar artists for a sample of user's artists
-        for artist_name in artists[:20]:  # Limit to prevent API overload
+        # Get similar artists for a larger sample of user's artists for more variety
+        sample_size = min(50, len(artists))  # Increased from 20 to 50
+        for artist_name in artists[:sample_size]:  # Expanded artist pool
             if len(similar_tracks) >= num_tracks:
                 break
                 
             try:
                 artist = network.get_artist(artist_name)
-                similar_artists = artist.get_similar(limit=5)
+                similar_artists = artist.get_similar(limit=10)  # Increased from 5 to 10
                 
                 for similar_artist in similar_artists:
                     if len(similar_tracks) >= num_tracks:
@@ -394,7 +479,7 @@ def get_similar_artist_tracks(network, loved_tracks, num_tracks):
                     similar_artist_name = similar_artist.item.name
                     if similar_artist_name.lower() not in used_artists:
                         try:
-                            top_tracks = similar_artist.item.get_top_tracks(limit=3)
+                            top_tracks = similar_artist.item.get_top_tracks(limit=5)  # Increased from 3 to 5
                             for track in top_tracks:
                                 if len(similar_tracks) >= num_tracks:
                                     break
@@ -933,7 +1018,7 @@ def get_coherent_my_station_recommendations(sp, network, history_analysis, num_t
         
         # Create coherent mix
         log_message("Creating coherent mix based on recent listening patterns...", 'yellow')
-        coherent_tracks = create_coherent_mix(sp, network, clustered_tracks, recent_context, num_tracks, playlist_history)
+        coherent_tracks = create_coherent_mix(sp, network, clustered_tracks, recent_context, num_tracks, banned_items)
         
         # Apply randomity factor
         if randomity_factor > 0:
@@ -953,9 +1038,9 @@ def get_ai_hybrid_recommendations(sp, network, history_analysis, num_tracks=100,
     try:
         log_message("Getting AI-powered recommendations...")
         
-        # Load playlist history to avoid repetition
-        playlist_history = load_playlist_history()
-        log_message(f"Loaded history: {len(playlist_history.get('recent_tracks', []))} recent tracks, {len(playlist_history.get('recent_artists', []))} recent artists", 'yellow')
+        # Load banned items for filtering
+        banned_items = load_banned_items()
+        log_message(f"Loaded {len(banned_items['songs'])} banned songs, {len(banned_items['artists'])} banned artists", 'yellow')
         
         log_message("Connecting to Last.fm API and fetching user profile...", 'yellow')
         user = network.get_user(LASTFM_USERNAME)
@@ -1176,10 +1261,10 @@ Focus on giving me the musical DNA and artist suggestions - I'll handle finding 
                 is_various_artists = 'various artists' in artist_name or 'va' == artist_name
                 is_live = any(keyword in track_title for keyword in ['live', 'live at', 'live from', 'live in', 'live on', 'concert', 'acoustic version'])
                 
-                # Skip if we already have a song from this artist, this exact track, recently used, or if it's filtered content
+                # Skip if we already have a song from this artist, this exact track, banned, or if it's filtered content
                 if (artist_name not in used_artists and 
                     track_key not in used_tracks and 
-                    not is_recently_used(track_data['title'], track_data['artist'], playlist_history) and
+                    not is_banned_item(track_data['title'], track_data['artist'], None, banned_items) and
                     not is_various_artists and 
                     not is_live):
                     class LovedTrack:
@@ -1220,10 +1305,10 @@ Focus on giving me the musical DNA and artist suggestions - I'll handle finding 
                         is_various_artists = 'various artists' in artist_name_lower or 'va' == artist_name_lower
                         is_live = any(keyword in track_title_lower for keyword in ['live', 'live at', 'live from', 'live in', 'live on', 'concert', 'acoustic version'])
                         
-                        # FIXED: Ensure one track per artist - skip if we already have a song from this artist, this exact track, recently used, or if it's filtered content
+                        # FIXED: Ensure one track per artist - skip if we already have a song from this artist, this exact track, banned, or if it's filtered content
                         if (artist_name_lower not in used_artists and 
                             track_key not in used_tracks and 
-                            not is_recently_used(track.title, track.artist.name, playlist_history) and
+                            not is_banned_item(track.title, track.artist.name, None, banned_items) and
                             not is_various_artists and 
                             not is_live):
                             
@@ -1295,7 +1380,7 @@ Focus on giving me the musical DNA and artist suggestions - I'll handle finding 
                                     # Ensure one track per artist
                                     if (artist_name_lower not in used_artists and 
                                         track_key not in used_tracks and 
-                                        not is_recently_used(track.title, track.artist.name, playlist_history) and
+                                        not is_banned_item(track.title, track.artist.name, None, banned_items) and
                                         not is_various_artists and 
                                         not is_live):
                                         
@@ -1347,10 +1432,10 @@ Focus on giving me the musical DNA and artist suggestions - I'll handle finding 
                     is_various_artists = 'various artists' in artist_name or 'va' == artist_name
                     is_live = any(keyword in track_title for keyword in ['live', 'live at', 'live from', 'live in', 'live on', 'concert', 'acoustic version'])
                     
-                    # FIXED: Ensure one track per artist - skip if we already have a song from this artist, this exact track, recently used, or if it's filtered content
+                    # FIXED: Ensure one track per artist - skip if we already have a song from this artist, this exact track, banned, or if it's filtered content
                     if (artist_name not in used_artists and 
                         track_key not in used_tracks and 
-                        not is_recently_used(track_data['title'], track_data['artist'], playlist_history) and
+                        not is_banned_item(track_data['title'], track_data['artist'], None, banned_items) and
                         not is_various_artists and 
                         not is_live):
                         class LovedTrack:
@@ -1533,8 +1618,7 @@ def job(use_recommended=False, use_ai=False, use_coherency=False, playlist_id=No
     log_message("Updating Spotify playlist...")
     update_spotify_playlist(spotify_client, target_playlist_id, tracks)
     
-    # Save playlist history to avoid repetition in future runs
-    save_playlist_history(tracks)
+    # History system removed - relying on Last.fm data and randomization for variety
     
     log_message("Playlist update job completed successfully.", 'green')
 
