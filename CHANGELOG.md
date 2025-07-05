@@ -1,3 +1,17 @@
+### 1.4.0: 2025-07-05
+
+* Fix duplicate tracks appearing in playlists by adding Spotify URI deduplication
+* Add persistent playlist history tracking to avoid repetitive songs across runs
+* Add `--randomity [0-100]` parameter to control selection randomness (0=predictable, 100=random, default=50)
+* Fix CoherentTrack class scope error in coherency-based mode
+* Enhance all recommendation modes (AI, coherency-based, recommended, random) with history awareness
+* Add cross-run persistence with playlist-history.json file
+* Improve track variety and reduce algorithmic predictability
+* Guarantee 100 tracks: Multi-tier fallback system ensures exactly 100 tracks are always added regardless of filtering
+* Add comprehensive banned items feature with `banned.json` file supporting songs, artists, and albums with clear prefixes (song:, artist:, album:)
+* Add automatic expansion from discovery candidates when filtering reduces track count
+* Add case-insensitive banned song title matching across all recommendation modes
+
 ### 1.3.0: 2025-07-04
 
 * Add `--coherency-based` flag which takes into account top artists this week

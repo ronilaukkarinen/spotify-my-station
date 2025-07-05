@@ -1,0 +1,15 @@
+{
+  "banned_items": [
+    "song:Hello Kitty",
+    "song:Die With A Smile",
+    "artist:Artist Name",
+    "album:Album Title",
+    "song:Another Song Title"
+  ],
+  "_comment": "Ban items by type using prefixes: 'song:', 'artist:', 'album:'. Case insensitive matching.",
+  "_examples": {
+    "song": "song:Hello Kitty - bans only this specific song",
+    "artist": "artist:Bad Artist - bans all songs by this artist",
+    "album": "album:Bad Album - bans all songs from this album"
+  }
+}
