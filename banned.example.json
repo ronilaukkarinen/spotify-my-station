@@ -4,12 +4,14 @@
     "song:Die With A Smile",
     "artist:Artist Name",
     "album:Album Title",
-    "song:Another Song Title"
+    "genre:hip hop",
+    "genre:rap"
   ],
-  "_comment": "Ban items by type using prefixes: 'song:', 'artist:', 'album:'. Case insensitive matching.",
+  "_comment": "Ban items by type using prefixes: 'song:', 'artist:', 'album:', 'genre:'. Case insensitive matching.",
   "_examples": {
     "song": "song:Hello Kitty - bans only this specific song",
     "artist": "artist:Bad Artist - bans all songs by this artist",
-    "album": "album:Bad Album - bans all songs from this album"
+    "album": "album:Bad Album - bans all songs from this album",
+    "genre": "genre:hip hop - bans all songs with this genre"
   }
 }

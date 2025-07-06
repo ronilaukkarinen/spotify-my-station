@@ -19,7 +19,7 @@ try:
 except ImportError:
     genai = None
 
-__version__ = "1.4.0"
+__version__ = "1.5.0"
 
 load_dotenv()
 
@@ -35,7 +35,7 @@ SPOTIPY_REDIRECT_URI = os.getenv("SPOTIPY_REDIRECT_URI")
 SPOTIFY_PLAYLIST_ID = os.getenv("SPOTIFY_PLAYLIST_ID")
 
 AI_PROVIDER = os.getenv("AI_PROVIDER", "openai").lower()
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or os.getenv("OPEN_AI_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 LOG_FILE = os.getenv("LOG_FILE", "/home/rolle/spotify-my-station/spotify-my-station.log")
@@ -48,6 +48,17 @@ RANDOMITY_FACTOR = int(os.getenv("RANDOMITY_FACTOR", "50"))  # 0-100 scale
 # --- Functions ---
 # Playlist history loading removed - using only Last.fm data for freshness
 
+def load_playlist_history():
+    """Load playlist history from file."""
+    try:
+        if os.path.exists(HISTORY_FILE):
+            with open(HISTORY_FILE, 'r') as f:
+                return json.load(f)
+        return {"recent_tracks": [], "recent_artists": []}
+    except Exception as e:
+        log_message(f"Error loading playlist history: {e}", 'yellow')
+        return {"recent_tracks": [], "recent_artists": []}
+
 
 def load_banned_items():
     """Load list of banned songs, artists, and albums."""
@@ -58,9 +69,10 @@ def load_banned_items():
                 banned_items = {
                     'songs': [],
                     'artists': [],
-                    'albums': []
+                    'albums': [],
+                    'genres': []
                 }
-                
+
                 for item in data.get("banned_items", []):
                     item_lower = item.lower()
                     if item_lower.startswith('song:'):
@@ -69,38 +81,16 @@ def load_banned_items():
                         banned_items['artists'].append(item_lower[7:].strip())
                     elif item_lower.startswith('album:'):
                         banned_items['albums'].append(item_lower[6:].strip())
-                
+                    elif item_lower.startswith('genre:'):
+                        banned_items['genres'].append(item_lower[6:].strip())
+
                 return banned_items
-        return {'songs': [], 'artists': [], 'albums': []}
+        return {'songs': [], 'artists': [], 'albums': [], 'genres': []}
     except Exception as e:
         log_message(f"Error loading banned items: {e}", 'yellow')
-        return {'songs': [], 'artists': [], 'albums': []}
+        return {'songs': [], 'artists': [], 'albums': [], 'genres': []}
 
 
-def create_banned_file():
-    """Create example banned file if it doesn't exist."""
-    if not os.path.exists(BANNED_FILE):
-        example_data = {
-            "banned_items": [
-                "song:Hello Kitty",
-                "song:Die With A Smile",
-                "artist:Artist Name",
-                "album:Album Title",
-                "song:Another Song Title"
-            ],
-            "_comment": "Ban items by type using prefixes: 'song:', 'artist:', 'album:'. Case insensitive matching.",
-            "_examples": {
-                "song": "song:Hello Kitty - bans only this specific song",
-                "artist": "artist:Bad Artist - bans all songs by this artist", 
-                "album": "album:Bad Album - bans all songs from this album"
-            }
-        }
-        try:
-            with open(BANNED_FILE, 'w') as f:
-                json.dump(example_data, f, indent=2)
-            log_message(f"Created example banned file: {BANNED_FILE}", 'green')
-        except Exception as e:
-            log_message(f"Error creating banned file: {e}", 'yellow')
 
 
 def save_playlist_history(tracks):
@@ -108,11 +98,11 @@ def save_playlist_history(tracks):
     try:
         history = load_playlist_history()
         banned_items = load_banned_items()
-        
+
         # Add current tracks to history (excluding banned items)
         current_tracks = []
         current_artists = []
-        
+
         for track in tracks:
             # Double-check that we're not saving banned items
             if not is_banned_item(track.title, track.artist.name, None, banned_items):
@@ -211,9 +201,30 @@ def cleanup_old_history():
 
 # is_recently_used function removed - history system eliminated for better variety
 
+def is_recently_used(track_title, artist_name, playlist_history):
+    """Check if a track was recently used in previous playlists."""
+    track_key = f"{track_title.lower()}|{artist_name.lower()}"
+    artist_key = artist_name.lower()
+    
+    recent_tracks = playlist_history.get("recent_tracks", [])
+    recent_artists = playlist_history.get("recent_artists", [])
+    
+    return track_key in recent_tracks or artist_key in recent_artists
 
-def is_banned_item(track_title, artist_name, album_name, banned_items):
-    """Check if a track, artist, or album is banned."""
+
+def get_track_genres(sp, track_uri):
+    """Get genres for a track from Spotify."""
+    try:
+        track = sp.track(track_uri)
+        artist_id = track['artists'][0]['id']
+        artist = sp.artist(artist_id)
+        return artist.get('genres', [])
+    except:
+        return []
+
+
+def is_banned_item(track_title, artist_name, album_name, banned_items, genres=None):
+    """Check if a track, artist, album, or genre is banned."""
     track_title_lower = track_title.lower()
     artist_name_lower = artist_name.lower()
     album_name_lower = album_name.lower() if album_name else ""
@@ -229,6 +240,14 @@ def is_banned_item(track_title, artist_name, album_name, banned_items):
     # Check if album is banned
     if album_name_lower and album_name_lower in banned_items['albums']:
         return True
+    
+    # Check if any genre is banned
+    if genres and banned_items['genres']:
+        for genre in genres:
+            genre_lower = genre.lower()
+            for banned_genre in banned_items['genres']:
+                if banned_genre in genre_lower or genre_lower in banned_genre:
+                    return True
     
     return False
 
@@ -602,7 +621,31 @@ def get_lastfm_recommendations(sp, network, num_tracks=100, randomity_factor=50)
         
         if not recommended_tracks:
             log_message("No recommendations found. Falling back to random loved tracks.", 'yellow')
-            return get_random_tracks_from_lastfm(network, num_tracks, randomity_factor)
+            return get_random_tracks_from_lastfm(network, num_tracks, 50)
+        
+        # If we don't have enough tracks, fill with more loved tracks
+        if len(recommended_tracks) < num_tracks:
+            remaining_needed = num_tracks - len(recommended_tracks)
+            log_message(f"Need {remaining_needed} more tracks to reach {num_tracks}. Adding more loved tracks...", 'yellow')
+            
+            # Get more loved tracks to fill the gap
+            additional_loved = []
+            for item in loved_tracks:
+                if len(additional_loved) >= remaining_needed:
+                    break
+                track = item.track
+                # Don't add tracks we already have
+                track_already_added = False
+                for existing_track in recommended_tracks:
+                    if (existing_track.title.lower() == track.title.lower() and 
+                        existing_track.artist.name.lower() == track.artist.name.lower()):
+                        track_already_added = True
+                        break
+                if not track_already_added:
+                    additional_loved.append(track)
+            
+            recommended_tracks.extend(additional_loved)
+            log_message(f"Added {len(additional_loved)} additional loved tracks", 'green')
         
         # Shuffle and trim to requested number
         random.shuffle(recommended_tracks)
@@ -791,9 +834,9 @@ def create_coherent_mix(sp, network, clustered_tracks, recent_context, num_track
         
         # Load banned items
         banned_items = load_banned_items()
-        banned_count = len(banned_items['songs']) + len(banned_items['artists']) + len(banned_items['albums'])
+        banned_count = len(banned_items['songs']) + len(banned_items['artists']) + len(banned_items['albums']) + len(banned_items['genres'])
         if banned_count > 0:
-            log_message(f"Loaded {len(banned_items['songs'])} banned songs, {len(banned_items['artists'])} banned artists, {len(banned_items['albums'])} banned albums", 'yellow')
+            log_message(f"Loaded {len(banned_items['songs'])} banned songs, {len(banned_items['artists'])} banned artists, {len(banned_items['albums'])} banned albums, {len(banned_items['genres'])} banned genres", 'yellow')
         
         # Strategy: Build coherent "sessions" rather than random mixing
         
@@ -1018,7 +1061,7 @@ def get_coherent_my_station_recommendations(sp, network, history_analysis, num_t
         
         # Create coherent mix
         log_message("Creating coherent mix based on recent listening patterns...", 'yellow')
-        coherent_tracks = create_coherent_mix(sp, network, clustered_tracks, recent_context, num_tracks, banned_items)
+        coherent_tracks = create_coherent_mix(sp, network, clustered_tracks, recent_context, num_tracks, playlist_history)
         
         # Apply randomity factor
         if randomity_factor > 0:
@@ -1040,7 +1083,7 @@ def get_ai_hybrid_recommendations(sp, network, history_analysis, num_tracks=100,
         
         # Load banned items for filtering
         banned_items = load_banned_items()
-        log_message(f"Loaded {len(banned_items['songs'])} banned songs, {len(banned_items['artists'])} banned artists", 'yellow')
+        log_message(f"Loaded {len(banned_items['songs'])} banned songs, {len(banned_items['artists'])} banned artists, {len(banned_items['albums'])} banned albums, {len(banned_items['genres'])} banned genres", 'yellow')
         
         log_message("Connecting to Last.fm API and fetching user profile...", 'yellow')
         user = network.get_user(LASTFM_USERNAME)
@@ -1104,7 +1147,7 @@ User's Music Profile:
 - Top artists from their collection: {', '.join(artists_list[:25])}
 - Some loved tracks to include: {', '.join(direct_loved_names[:15])}
 
-Your task: Recommend artists and musical directions for creating the perfect personalized radio station.
+Your task: Recommend artists and musical directions for creating the perfect personalized radio station. Your goal is to mimic Apple Music's My Station. "My Station" on Apple Music refers to a personalized radio station that plays music based on user's listening history and preferences, combining songs from user's library with similar tracks that the AI/algorithm suggests. Try to achieve that same effect with these song choices.
 
 Instead of specific songs (which you might get wrong), focus on:
 
@@ -1129,12 +1172,16 @@ Instead of specific songs (which you might get wrong), focus on:
 Focus on giving me the musical DNA and artist suggestions - I'll handle finding the actual tracks using Spotify's recommendation engine."""
 
         ai_response = None
-        
+
         log_message(f"AI Provider configured: {AI_PROVIDER}")
         log_message(f"Processing {len(loved_tracks_data)} loved tracks for AI analysis...")
         log_message(f"Found {len(artists_list)} unique artists in your collection")
         log_message(f"Using {len(sample_tracks)} sample tracks to represent your taste")
         
+        # Debug AI configuration
+        log_message(f"OpenAI available: {openai is not None}, API key set: {OPENAI_API_KEY is not None and len(OPENAI_API_KEY) > 0}", 'yellow')
+        log_message(f"Gemini available: {genai is not None}, API key set: {GEMINI_API_KEY is not None and len(GEMINI_API_KEY) > 0}", 'yellow')
+
         if AI_PROVIDER == "openai" and OPENAI_API_KEY and openai:
             try:
                 openai.api_key = OPENAI_API_KEY
@@ -1153,7 +1200,9 @@ Focus on giving me the musical DNA and artist suggestions - I'll handle finding 
                 ai_response = response.choices[0].message.content
                 log_message(f"Successfully received AI recommendations from OpenAI in {ai_time:.1f} seconds!", 'green')
             except Exception as e:
+                import traceback
                 log_message(f"OpenAI API error: {e}", 'red')
+                log_message(f"OpenAI error details: {traceback.format_exc()}", 'red')
                 log_message("Falling back to Gemini if available...", 'yellow')
         
         if (not ai_response or AI_PROVIDER == "gemini") and GEMINI_API_KEY and genai:
@@ -1171,11 +1220,14 @@ Focus on giving me the musical DNA and artist suggestions - I'll handle finding 
                 ai_response = response.text
                 log_message(f"Successfully received AI recommendations from Gemini in {ai_time:.1f} seconds!", 'green')
             except Exception as e:
+                import traceback
                 log_message(f"Gemini API error: {e}", 'red')
+                log_message(f"Gemini error details: {traceback.format_exc()}", 'red')
         
         if not ai_response:
             log_message("No AI API available or all failed. Falling back to Last.fm recommendations.", 'red')
-            return get_lastfm_recommendations(None, network, num_tracks, randomity_factor)
+            log_message(f"Debug: AI_PROVIDER={AI_PROVIDER}, OPENAI_API_KEY length={len(OPENAI_API_KEY) if OPENAI_API_KEY else 0}, GEMINI_API_KEY length={len(GEMINI_API_KEY) if GEMINI_API_KEY else 0}", 'red')
+            return get_lastfm_recommendations(sp, network, num_tracks, 50)
         
         try:
             log_message("Parsing AI response and extracting recommendations...", 'yellow')
@@ -1458,19 +1510,24 @@ Focus on giving me the musical DNA and artist suggestions - I'll handle finding 
         except (json.JSONDecodeError, KeyError) as e:
             log_message(f"Failed to parse AI response: {e}", 'red')
             log_message("Falling back to Last.fm recommendations...", 'yellow')
-            return get_lastfm_recommendations(None, network, num_tracks, randomity_factor)
+            return get_lastfm_recommendations(sp, network, num_tracks, 50)
             
     except Exception as e:
         log_message(f"Error getting AI recommendations: {e}", 'red')
-        return get_lastfm_recommendations(None, network, num_tracks)
+        return get_lastfm_recommendations(sp, network, num_tracks, 50)
 
 
 def update_spotify_playlist(sp, playlist_id, tracks):
     try:
+        banned_items = load_banned_items()
         user_id = sp.me()["id"]
         track_uris = []
         track_uris_set = set()  # Track URIs we've already added to avoid duplicates
+        used_spotify_artists = set()  # Artist names we've already added to ensure one track per artist
         not_found_count = 0 #Counts how many tracks were not found
+        banned_count = 0 #Counts how many tracks were banned
+        artist_duplicate_count = 0 #Counts how many tracks were skipped due to artist already being used
+        
         for track in tracks:
             # Try multiple search strategies to improve match rate
             search_queries = [
@@ -1499,16 +1556,55 @@ def update_spotify_playlist(sp, playlist_id, tracks):
                         
                         if best_match:
                             track_uri = best_match["uri"]
+                            spotify_artist_name = best_match["artists"][0]["name"].lower()
+                            
+                            # Check if we already have a track from this Spotify artist
+                            if spotify_artist_name in used_spotify_artists:
+                                log_message(f"Artist duplicate skipped: {track.title} by {track.artist.name} (already have track from {best_match['artists'][0]['name']})", 'yellow')
+                                artist_duplicate_count += 1
+                                track_found = True
+                                break
+                            
+                            # Check if this track has banned genres
+                            if banned_items['genres']:
+                                track_genres = get_track_genres(sp, track_uri)
+                                if is_banned_item(track.title, track.artist.name, None, banned_items, track_genres):
+                                    log_message(f"Track banned (genre filter): {track.title} by {track.artist.name}", 'yellow')
+                                    banned_count += 1
+                                    track_found = True
+                                    break
+                            
                             if track_uri not in track_uris_set:
                                 track_uris.append(track_uri)
                                 track_uris_set.add(track_uri)
+                                used_spotify_artists.add(spotify_artist_name)
                             track_found = True
                             break
                         elif query == search_queries[-1]:  # Last query, use first result
-                            track_uri = search_results["tracks"]["items"][0]["uri"]
+                            track_result = search_results["tracks"]["items"][0]
+                            track_uri = track_result["uri"]
+                            spotify_artist_name = track_result["artists"][0]["name"].lower()
+                            
+                            # Check if we already have a track from this Spotify artist
+                            if spotify_artist_name in used_spotify_artists:
+                                log_message(f"Artist duplicate skipped: {track.title} by {track.artist.name} (already have track from {track_result['artists'][0]['name']})", 'yellow')
+                                artist_duplicate_count += 1
+                                track_found = True
+                                break
+                            
+                            # Check if this track has banned genres
+                            if banned_items['genres']:
+                                track_genres = get_track_genres(sp, track_uri)
+                                if is_banned_item(track.title, track.artist.name, None, banned_items, track_genres):
+                                    log_message(f"Track banned (genre filter): {track.title} by {track.artist.name}", 'yellow')
+                                    banned_count += 1
+                                    track_found = True
+                                    break
+                            
                             if track_uri not in track_uris_set:
                                 track_uris.append(track_uri)
                                 track_uris_set.add(track_uri)
+                                used_spotify_artists.add(spotify_artist_name)
                             track_found = True
                             break
                 except Exception as e:
@@ -1531,7 +1627,7 @@ def update_spotify_playlist(sp, playlist_id, tracks):
         for i in range(0, len(track_uris), 100):
             sp.playlist_add_items(playlist_id, track_uris[i : i + 100])
 
-        log_message(f"Playlist updated. Added {len(track_uris)} tracks. {not_found_count} tracks not found.", 'green')
+        log_message(f"Playlist updated. Added {len(track_uris)} tracks. {not_found_count} tracks not found, {banned_count} tracks banned, {artist_duplicate_count} artist duplicates skipped.", 'green')
 
 
     except Exception as e:
@@ -1562,22 +1658,13 @@ def log_message(message, color=None):
         f.write(log_entry)
 
 
-def job(use_recommended=False, use_ai=False, use_coherency=False, playlist_id=None, randomity=None):
+def job(playlist_id=None):
     target_playlist_id = playlist_id or SPOTIFY_PLAYLIST_ID
-    randomity_factor = randomity if randomity is not None else RANDOMITY_FACTOR
-    
-    # Create banned file if it doesn't exist
-    create_banned_file()
     
     log_message(f"Starting playlist update job (version {__version__})...", 'yellow')
     log_message(f"Target playlist ID: {target_playlist_id}")
     log_message(f"Requesting {NUMBER_OF_TRACKS} tracks from Last.fm user: {LASTFM_USERNAME}")
-    log_message(f"Randomity factor: {randomity_factor}%")
-    
-    mode = ("Coherent My Station" if use_coherency else 
-            "AI-powered My Station" if use_ai else 
-            "Recommended" if use_recommended else "Random")
-    log_message(f"Mode: {mode} tracks")
+    log_message("Mode: AI-powered My Station")
     
     log_message("Authenticating with Last.fm...")
     lastfm_network = authenticate_lastfm()
@@ -1593,22 +1680,10 @@ def job(use_recommended=False, use_ai=False, use_coherency=False, playlist_id=No
         return
     log_message("Spotify authentication successful.", 'green')
 
-    if use_coherency:
-        log_message("Analyzing listening history for coherent My Station recommendations...")
-        history_analysis = analyze_listening_history()
-        log_message("Generating coherent My Station recommendations...")
-        tracks = get_coherent_my_station_recommendations(spotify_client, lastfm_network, history_analysis, NUMBER_OF_TRACKS, randomity_factor)
-    elif use_ai:
-        log_message("Analyzing listening history for AI recommendations...")
-        history_analysis = analyze_listening_history()
-        log_message("Generating AI-powered hybrid My Station recommendations...")
-        tracks = get_ai_hybrid_recommendations(spotify_client, lastfm_network, history_analysis, NUMBER_OF_TRACKS, randomity_factor)
-    elif use_recommended:
-        log_message("Generating recommendations based on your Last.fm loved tracks...")
-        tracks = get_lastfm_recommendations(spotify_client, lastfm_network, NUMBER_OF_TRACKS, randomity_factor)
-    else:
-        log_message("Fetching random tracks from Last.fm loved tracks...")
-        tracks = get_random_tracks_from_lastfm(lastfm_network, NUMBER_OF_TRACKS, randomity_factor)
+    log_message("Analyzing listening history for AI recommendations...")
+    history_analysis = analyze_listening_history()
+    log_message("Generating AI-powered hybrid My Station recommendations...")
+    tracks = get_ai_hybrid_recommendations(spotify_client, lastfm_network, history_analysis, NUMBER_OF_TRACKS, 50)
     
     if not tracks:
         log_message("Failed to retrieve tracks from Last.fm. Aborting.", 'red')
@@ -1618,24 +1693,14 @@ def job(use_recommended=False, use_ai=False, use_coherency=False, playlist_id=No
     log_message("Updating Spotify playlist...")
     update_spotify_playlist(spotify_client, target_playlist_id, tracks)
     
-    # History system removed - relying on Last.fm data and randomization for variety
-    
     log_message("Playlist update job completed successfully.", 'green')
 
 
 # --- Main ---
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Spotify My Station - Update playlist with Last.fm loved tracks')
-    parser.add_argument('--recommended', action='store_true', 
-                       help='Use recommended mode (less played + newer tracks) instead of random selection')
-    parser.add_argument('--ai', action='store_true',
-                       help='Use AI-powered My Station mode (mimics Apple Music My Station with familiar favorites + discoveries)')
-    parser.add_argument('--coherency-based', action='store_true',
-                       help='Use coherency-based My Station mode (creates coherent playlists based on recent listening patterns, reduces messiness from large collections)')
+    parser = argparse.ArgumentParser(description='Spotify My Station - AI-powered playlist with Last.fm loved tracks')
     parser.add_argument('--playlist', type=str,
                        help='Spotify playlist ID to update (overrides environment variable)')
-    parser.add_argument('--randomity', type=int, choices=range(0, 101), metavar='[0-100]',
-                       help='Randomity factor (0=most predictable, 100=most random, default=50)')
     
     args = parser.parse_args()
-    job(use_recommended=args.recommended, use_ai=args.ai, use_coherency=getattr(args, 'coherency_based', False), playlist_id=args.playlist, randomity=args.randomity)
+    job(playlist_id=args.playlist)

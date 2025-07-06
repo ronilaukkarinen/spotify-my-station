@@ -1,3 +1,14 @@
+### 1.5.0: 2025-07-06
+
+* Streamlined script to use AI by default, removed complex flags
+* Add genre filtering support with genre: prefix in banned.json 
+* Enforce one track per artist rule in Spotify playlist updates
+* Support both OPENAI_API_KEY and OPEN_AI_API_KEY environment variables
+* Enhanced logging for banned items and artist duplicates
+* Fix Last.fm fallback parameter errors
+* Remove automatic banned.json file creation
+* Update documentation for simplified usage
+
 ### 1.4.0: 2025-07-05
 
 * Fix duplicate tracks appearing in playlists by adding Spotify URI deduplication
