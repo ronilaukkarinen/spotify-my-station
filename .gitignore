@@ -1,5 +1,7 @@
 # Environment variables
 .env
+.claude
+.claude/settings.local.json
 
 # Spotify cache
 .spotify_cache
