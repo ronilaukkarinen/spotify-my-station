@@ -19,7 +19,7 @@ try:
 except ImportError:
     genai = None
 
-__version__ = "1.5.0"
+__version__ = "1.6.0"
 
 load_dotenv()
 
@@ -1078,9 +1078,10 @@ def get_coherent_my_station_recommendations(sp, network, history_analysis, num_t
 
 
 def get_ai_hybrid_recommendations(sp, network, history_analysis, num_tracks=100, randomity_factor=50):
+    # Keep existing implementation as fallback
     try:
         log_message("Getting AI-powered recommendations...")
-        
+
         # Load banned items for filtering
         banned_items = load_banned_items()
         log_message(f"Loaded {len(banned_items['songs'])} banned songs, {len(banned_items['artists'])} banned artists, {len(banned_items['albums'])} banned albums, {len(banned_items['genres'])} banned genres", 'yellow')
@@ -1185,16 +1186,16 @@ Focus on giving me the musical DNA and artist suggestions - I'll handle finding 
         if AI_PROVIDER == "openai" and OPENAI_API_KEY and openai:
             try:
                 openai.api_key = OPENAI_API_KEY
-                log_message("Using OpenAI GPT-4o-mini for AI recommendations...", 'green')
+                log_message("Using OpenAI GPT-5-mini for AI recommendations...", 'green')
                 log_message(f"Preparing to send analysis of your {len(loved_tracks_data)} tracks to OpenAI...", 'yellow')
                 log_message("Sending music taste analysis to OpenAI API...", 'yellow')
-                
+
                 start_ai_time = time.time()
                 response = openai.chat.completions.create(
-                    model="gpt-4o-mini",
+                    model="gpt-5-mini",
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.8,
-                    max_tokens=4000
+                    max_completion_tokens=8192
                 )
                 ai_time = time.time() - start_ai_time
                 ai_response = response.choices[0].message.content
@@ -1680,10 +1681,10 @@ def job(playlist_id=None):
         return
     log_message("Spotify authentication successful.", 'green')
 
-    log_message("Analyzing listening history for AI recommendations...")
+    log_message("Analyzing listening history for recommendations...")
     history_analysis = analyze_listening_history()
-    log_message("Generating AI-powered hybrid My Station recommendations...")
-    tracks = get_ai_hybrid_recommendations(spotify_client, lastfm_network, history_analysis, NUMBER_OF_TRACKS, 50)
+    log_message("Generating coherent My Station recommendations...")
+    tracks = get_coherent_my_station_recommendations(spotify_client, lastfm_network, history_analysis, NUMBER_OF_TRACKS, RANDOMITY_FACTOR)
     
     if not tracks:
         log_message("Failed to retrieve tracks from Last.fm. Aborting.", 'red')

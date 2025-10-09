@@ -1,3 +1,17 @@
+### 1.6.0: 2025-10-09
+
+* Upgrade model from gpt-4o-mini to gpt-5-mini
+* Implement Apple Music "My Station"-style algorithm with temporal awareness
+* Add 35% recently played favorites, 30% deep cuts, 20% smart discovery, 15% rediscoveries mix
+* Add genre coherence to prevent jarring transitions (no more jazz to black metal jumps)
+* Implement smart shuffling that groups similar genres into 3-5 track sessions
+* Add genre family clustering (rock, electronic, jazz, etc.) with smooth transitions
+* Add Spotify genre data integration for accurate genre detection
+* Add recency weighting to prioritize current listening habits over old favorites
+* Add temporal analysis for 30-day, 90-day, and 6-month listening patterns
+* Improve discovery tracks to be based on recent listening, not random favorites
+* Add intelligent session ordering for natural genre flow
+
 ### 1.5.0: 2025-07-06
 
 * Streamlined script to use AI by default, removed complex flags
