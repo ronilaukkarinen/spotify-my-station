@@ -1,4 +1,4 @@
-### 1.7.0: 2025-10-09
+### 1.7.0: 2025-10-13
 
 * Fix feedback loop by excluding generated playlist tracks from recent listening analysis
 * Switch to coherent My Station algorithm as default (40% recent, 30% genre-cohesive, 20% discovery, 10% classics)
