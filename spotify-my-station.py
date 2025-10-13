@@ -19,7 +19,7 @@ try:
 except ImportError:
     genai = None
 
-__version__ = "1.6.0"
+__version__ = "1.7.0"
 
 load_dotenv()
 
@@ -670,30 +670,36 @@ def get_recent_listening_context(network):
     """Analyze recent Last.fm listening patterns to determine current music preferences."""
     try:
         user = network.get_user(LASTFM_USERNAME)
-        
+
         # Get recent tracks (last 500 plays to ensure we get enough recent data)
         log_message("Fetching recent tracks from Last.fm...", 'yellow')
         recent_tracks = user.get_recent_tracks(limit=500)
-        
+
+        # Load playlist history to EXCLUDE tracks we generated (prevent feedback loop!)
+        playlist_history = load_playlist_history()
+        recent_playlist_tracks = set(playlist_history.get("recent_tracks", []))
+        recent_playlist_artists = set(playlist_history.get("recent_artists", []))
+
         recent_artists = []
         recent_genres = []
         artist_counts = Counter()
-        
+
         # Filter to last 7 days
         import time
         from datetime import datetime, timedelta
         seven_days_ago = datetime.now() - timedelta(days=7)
         seven_days_ago_timestamp = int(seven_days_ago.timestamp())
-        
+
         tracks_processed = 0
         tracks_in_timeframe = 0
-        
+        tracks_skipped_from_playlist = 0
+
         log_message("Processing recent tracks and filtering to last 7 days...", 'yellow')
         
         for track_item in recent_tracks:
             tracks_processed += 1
             track = track_item.track
-            
+
             # Check if track has timestamp and is within last 7 days
             try:
                 # Get the timestamp of when the track was played
@@ -707,7 +713,17 @@ def get_recent_listening_context(network):
             except:
                 # If we can't get timestamp, include it (better to include than exclude)
                 tracks_in_timeframe += 1
-            
+
+            # PREVENT FEEDBACK LOOP: Skip most playlist tracks, but keep ~10% as "nice surprises"
+            track_key = f"{track.title.lower()}|{track.artist.name.lower()}"
+            artist_key = track.artist.name.lower()
+
+            if track_key in recent_playlist_tracks or artist_key in recent_playlist_artists:
+                # Keep 10% of playlist tracks as "surprises" (your actual favorites)
+                if random.random() > 0.10:  # Skip 90% of playlist tracks
+                    tracks_skipped_from_playlist += 1
+                    continue
+
             artist_name = track.artist.name
             recent_artists.append(artist_name)
             artist_counts[artist_name] += 1
@@ -724,7 +740,7 @@ def get_recent_listening_context(network):
             except:
                 continue
         
-        log_message(f"Processed {tracks_processed} recent tracks, {tracks_in_timeframe} from last 7 days", 'green')
+        log_message(f"Processed {tracks_processed} recent tracks, {tracks_in_timeframe} from last 7 days, {tracks_skipped_from_playlist} skipped (from generated playlist)", 'green')
         
         # Get top recent artists and genres
         top_recent_artists = [artist for artist, count in artist_counts.most_common(15)]

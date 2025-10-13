@@ -1,3 +1,10 @@
+### 1.7.0: 2025-10-09
+
+* Fix feedback loop by excluding generated playlist tracks from recent listening analysis
+* Switch to coherent My Station algorithm as default (40% recent, 30% genre-cohesive, 20% discovery, 10% classics)
+* Add 10% allowance for playlist tracks as nice surprises of actual favorites
+* Filter 90% of generated playlist tracks when analyzing Last.fm recent listening patterns
+
 ### 1.6.0: 2025-10-09
 
 * Upgrade model from gpt-4o-mini to gpt-5-mini
