@@ -19,7 +19,7 @@ try:
 except ImportError:
     genai = None
 
-__version__ = "1.7.0"
+__version__ = "1.8.0"
 
 load_dotenv()
 
@@ -769,43 +769,46 @@ def get_clustered_loved_tracks(network, recent_context):
     try:
         user = network.get_user(LASTFM_USERNAME)
         loved_tracks = user.get_loved_tracks(limit=None)
-        
+
         # Organize tracks by artist and add metadata
         clustered_tracks = {
-            'recent_favorites': [],  # Artists from recent listening
+            'recent_favorites': [],  # Artists from recent listening (limit to top played)
             'genre_clusters': defaultdict(list),  # Tracks by genre
             'discovery_candidates': [],  # Less played artists for discovery
             'classics': []  # High playcount tracks
         }
-        
+
         track_count = 0
         processed_artists = set()
-        
+
         log_message("Clustering loved tracks by genre and recency...", 'yellow')
-        
+
         for track_item in loved_tracks:
             track = track_item.track
             track_count += 1
-            
+
             # Progress updates
             if track_count % 1000 == 0:
                 log_message(f"Processed {track_count} tracks for clustering...", 'yellow')
-            
+
             artist_name = track.artist.name
             track_data = {
                 'title': track.title,
                 'artist': artist_name,
                 'playcount': getattr(track, 'playcount', 0) or 0
             }
-            
+
             # Skip if we already processed this artist (one track per artist for coherence)
             if artist_name.lower() in processed_artists:
                 continue
-            
+
             processed_artists.add(artist_name.lower())
-            
+
             # Categorize based on recent listening patterns
-            if artist_name in recent_context['recent_artists']:
+            # Only include in "recent favorites" if artist has multiple plays (not just 1-2)
+            artist_play_count = recent_context['artist_counts'].get(artist_name, 0)
+            if artist_name in recent_context['recent_artists'] and artist_play_count >= 3:
+                # Only add to recent favorites if you actually played this artist multiple times
                 clustered_tracks['recent_favorites'].append(track_data)
             elif track_data['playcount'] > 100:  # High playcount = classics
                 clustered_tracks['classics'].append(track_data)
