@@ -19,7 +19,7 @@ try:
 except ImportError:
     genai = None
 
-__version__ = "1.8.0"
+__version__ = "1.9.0"
 
 load_dotenv()
 
@@ -1712,7 +1712,10 @@ def job(playlist_id=None):
 
     log_message("Updating Spotify playlist...")
     update_spotify_playlist(spotify_client, target_playlist_id, tracks)
-    
+
+    log_message("Saving playlist history...")
+    save_playlist_history(tracks)
+
     log_message("Playlist update job completed successfully.", 'green')
 
 

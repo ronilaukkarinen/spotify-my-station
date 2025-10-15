@@ -1,3 +1,10 @@
+### 1.9.0: 2025-10-15
+
+* Fix playlist history never being saved after updates
+* Add save_playlist_history call after each playlist update
+* Fix same songs repeating every hour due to stale history file
+* Resolve issue where history file was stuck at July 5th timestamp
+
 ### 1.8.0: 2025-10-14
 
 * Fix repetitive tracks by requiring 3+ plays for recent favorites category
