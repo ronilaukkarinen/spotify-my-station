@@ -1,21 +1,26 @@
 # 🎵 Spotify My Station
 
-![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54) ![Spotify](https://img.shields.io/badge/Spotify-1DB954?style=for-the-badge&logo=spotify&logoColor=white) ![Last.fm](https://img.shields.io/badge/last.fm-D51007?style=for-the-badge&logo=last.fm&logoColor=white) ![Chagtgpt](https://img.shields.io/badge/OpenAI-74aa9c?style=for-the-badge&logo=openai&logoColor=white) ![Google Gemini](https://img.shields.io/badge/Google%20Gemini-4285F4?style=for-the-badge&logo=google&logoColor=white) ![Version](https://img.shields.io/badge/version-1.9.0-blue?style=for-the-badge)
+![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54) ![Spotify](https://img.shields.io/badge/Spotify-1DB954?style=for-the-badge&logo=spotify&logoColor=white) ![Last.fm](https://img.shields.io/badge/last.fm-D51007?style=for-the-badge&logo=last.fm&logoColor=white) ![Chagtgpt](https://img.shields.io/badge/OpenAI-74aa9c?style=for-the-badge&logo=openai&logoColor=white) ![Google Gemini](https://img.shields.io/badge/Google%20Gemini-4285F4?style=for-the-badge&logo=google&logoColor=white) ![Version](https://img.shields.io/badge/version-2.2.0-blue?style=for-the-badge)
 
 ![image](https://github.com/user-attachments/assets/6c3e1c17-483e-450f-ae59-60564c69548b)
 
-A Python script that automatically updates a Spotify playlist with tracks from your Last.fm loved tracks. Uses AI-powered recommendations by default to mimic Apple Music's "My Station" for intelligent music curation with genre filtering support. 🔄
+A Python script that automatically creates an Apple Music "My Station"-style playlist on Spotify with 50% favorites and 50% discovery. Music discovery powered by GPT-5-mini/Gemini AI recommendations and Last.fm similar artists, with unlimited playlist history tracking.
 
 ![Screenshot from 2025-06-30 19-49-25](https://github.com/user-attachments/assets/38b60f90-2725-4b56-9897-e644b5df7d1b)
 
 ## Features
 
-- **AI-powered by default**: Uses OpenAI or Google Gemini to create intelligent playlists
-- **Genre filtering**: Ban entire genres (like hip hop, rap) from your playlists
-- **Smart curation**: Mixes your loved tracks with AI-recommended discoveries
-- **Automatic updates**: Designed to run via cron job scheduling
-- **Comprehensive logging**: Detailed logs with timestamps
-- **Clean playlist management**: Removes existing tracks before adding new ones
+- **Balanced discovery**: 50% favorites and 50% new tracks, blending familiarity with discovery
+- **Apple Music My Station experience**: Mimics Apple Music's intelligent station algorithm
+- **Smart mix**:
+  - 50% your favorites (weighted by playcount, with 3+ day cooldown)
+  - 20% AI discovery (GPT-5-mini or Gemini suggests NEW artists based on your taste)
+  - 30% Last.fm discovery (similar artists from Last.fm collaborative filtering)
+- **Unlimited history tracking**: Tracks every song ever suggested with timestamps
+- **Intelligent cooldown**: Minimum 3 days between repeats, overplay protection
+- **Genre filtering**: Ban entire genres from your playlists
+- **Automatic updates**: Runs hourly via cron job with fresh discoveries each time
+- **Comprehensive logging**: Detailed logs showing discovery sources
 
 ## Requirements
 
@@ -135,9 +140,9 @@ python spotify-my-station.py
 - Balances songs you love with AI-curated recommendations based on your taste
 
 **Mix Strategy:**
-- 25% songs from your vast loved tracks collection (spanning different eras and moods)
-- 50% tracks from AI-recommended artists based on your taste analysis
-- 25% songs from similar artists discovered via Last.fm recommendations
+- 50% songs from your loved tracks collection (weighted by playcount)
+- 20% tracks from AI-recommended artists based on your taste analysis
+- 30% songs from similar artists discovered via Last.fm recommendations
 
 ### Custom Playlist
 

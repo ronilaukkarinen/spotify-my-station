@@ -1,3 +1,49 @@
+### 2.2.0: 2025-10-21
+
+* Fix playlist appending bug by using playlist_replace_items instead of manual deletion
+* Change mix ratio to 50% favorites, 20% AI discovery, 30% Last.fm discovery
+* Add playcount weighting to favor frequently played loved tracks
+* Reduce cooldown from 7 days to 3 days minimum
+* Increase probability of track inclusion after cooldown (50-90% after 3 days)
+* Reduce similar artist limit from 20 to 10 for closer taste matching
+* Remove Spotify verification during discovery phase for performance
+* Reduce overplay protection from 180 days to 120 days
+
+### 2.1.0: 2025-10-19
+
+* Re-add AI discovery with GPT-5-mini and Gemini support
+* Add get_ai_artist_recommendations helper function for AI-powered suggestions
+* Change mix ratio to 25% favorites, 35% AI discovery, 40% Last.fm discovery
+* Integrate AI artist recommendations into Apple Music discovery station
+* AI now suggests 15 NEW artists based on user's 6,739 loved tracks
+* Cost-effective AI usage (~$0.01-0.02 per playlist update)
+* Fix GPT-5-mini temperature parameter (only supports default temperature=1)
+* Update README and documentation to reflect new AI-powered mix
+
+### 2.0.1: 2025-10-19
+
+* Remove deprecated Spotify recommendations API (was causing 404 errors)
+* Switch to Last.fm similar artists for all discovery tracks
+* Fetch 2x tracks during discovery to account for duplicate artist filtering
+* Allow up to 2 tracks per artist during discovery phase
+* Increase Last.fm similar artist limits for better discovery coverage
+* Fix issue where only 48/100 tracks were added due to strict deduplication
+* Change mix to 25% favorites, 75% Last.fm discovery
+* Add detailed logging for discovery sources and filtering
+
+### 2.0.0: 2025-10-15
+
+* Implement true Apple Music My Station discovery with 60% new tracks
+* Add unlimited history tracking with timestamps for each track
+* Add intelligent cooldown system (7 day minimum, probabilistic 7-90 days)
+* Add overplay protection (5+ plays in 90 days triggers 180 day ban)
+* Implement Spotify recommendations API for similar track discovery
+* Add Last.fm similar artists for additional discovery
+* Change mix ratio to 25% favorites, 75% new discovery tracks
+* Remove 150 track history limit, now tracks unlimited history forever
+* Add per-track suggestion counting and timestamp tracking
+* Update README with new discovery-focused feature set
+
 ### 1.9.0: 2025-10-15
 
 * Fix playlist history never being saved after updates

@@ -19,7 +19,7 @@ try:
 except ImportError:
     genai = None
 
-__version__ = "1.9.0"
+__version__ = "2.2.0"
 
 load_dotenv()
 
@@ -94,55 +94,45 @@ def load_banned_items():
 
 
 def save_playlist_history(tracks):
-    """Save current playlist tracks to history to avoid repetition in future runs."""
+    """Save current playlist tracks with timestamps for unlimited history tracking."""
     try:
         history = load_playlist_history()
         banned_items = load_banned_items()
+        current_time = datetime.now().isoformat()
 
-        # Add current tracks to history (excluding banned items)
-        current_tracks = []
-        current_artists = []
+        # Get or create track_history dict
+        if "track_history" not in history:
+            history["track_history"] = {}
 
+        saved_count = 0
         for track in tracks:
             # Double-check that we're not saving banned items
             if not is_banned_item(track.title, track.artist.name, None, banned_items):
                 track_key = f"{track.title.lower()}|{track.artist.name.lower()}"
-                current_tracks.append(track_key)
-                current_artists.append(track.artist.name.lower())
-        
-        # Keep only last 1.5 runs worth of history for better variety (150 tracks max)
-        max_history = int(NUMBER_OF_TRACKS * 1.5)
-        
-        # Combine with existing history
-        all_tracks = current_tracks + history.get("recent_tracks", [])
-        all_artists = current_artists + history.get("recent_artists", [])
-        
-        # Remove duplicates while preserving order
-        seen_tracks = set()
-        seen_artists = set()
-        unique_tracks = []
-        unique_artists = []
-        
-        for track in all_tracks:
-            if track not in seen_tracks:
-                unique_tracks.append(track)
-                seen_tracks.add(track)
-        
-        for artist in all_artists:
-            if artist not in seen_artists:
-                unique_artists.append(artist)
-                seen_artists.add(artist)
-        
-        # Trim to max history
-        history["recent_tracks"] = unique_tracks[:max_history]
-        history["recent_artists"] = unique_artists[:max_history]
-        history["last_updated"] = datetime.now().isoformat()
-        
+
+                # Update or create track entry
+                if track_key not in history["track_history"]:
+                    history["track_history"][track_key] = {
+                        "first_suggested": current_time,
+                        "last_suggested": current_time,
+                        "times_suggested": 1
+                    }
+                else:
+                    history["track_history"][track_key]["last_suggested"] = current_time
+                    history["track_history"][track_key]["times_suggested"] += 1
+
+                saved_count += 1
+
+        # Keep legacy fields for backward compatibility but unused
+        history["recent_tracks"] = []
+        history["recent_artists"] = []
+        history["last_updated"] = current_time
+
         with open(HISTORY_FILE, 'w') as f:
             json.dump(history, f, indent=2)
-        
-        log_message(f"Saved {len(current_tracks)} tracks to playlist history", 'green')
-        
+
+        log_message(f"Saved {saved_count} tracks to unlimited history (total: {len(history['track_history'])} tracks tracked)", 'green')
+
     except Exception as e:
         log_message(f"Error saving playlist history: {e}", 'yellow')
 
@@ -202,14 +192,37 @@ def cleanup_old_history():
 # is_recently_used function removed - history system eliminated for better variety
 
 def is_recently_used(track_title, artist_name, playlist_history):
-    """Check if a track was recently used in previous playlists."""
+    """Check if a track should be filtered based on cooldown period."""
+    from datetime import datetime, timedelta
+
     track_key = f"{track_title.lower()}|{artist_name.lower()}"
-    artist_key = artist_name.lower()
-    
-    recent_tracks = playlist_history.get("recent_tracks", [])
-    recent_artists = playlist_history.get("recent_artists", [])
-    
-    return track_key in recent_tracks or artist_key in recent_artists
+    track_history = playlist_history.get("track_history", {})
+
+    if track_key not in track_history:
+        return False  # Never suggested before
+
+    track_data = track_history[track_key]
+    last_suggested = datetime.fromisoformat(track_data["last_suggested"])
+    days_since = (datetime.now() - last_suggested).days
+    times_suggested = track_data.get("times_suggested", 0)
+
+    # Overplay protection: if suggested 5+ times in last 60 days, ban for 120 days
+    if times_suggested >= 5 and days_since < 120:
+        return True
+
+    # Cooldown logic: 3 days minimum between plays (reduced for more familiarity)
+    if days_since < 3:
+        return True
+
+    # Probabilistic cooldown for 3-90 days (more lenient for familiar tracks)
+    if days_since < 14:
+        return random.random() > 0.5  # 50% chance to include
+    elif days_since < 30:
+        return random.random() > 0.7  # 70% chance to include
+    elif days_since < 90:
+        return random.random() > 0.9  # 90% chance to include
+
+    return False  # 90+ days or never suggested: always include
 
 
 def get_track_genres(sp, track_uri):
@@ -1096,6 +1109,290 @@ def get_coherent_my_station_recommendations(sp, network, history_analysis, num_t
         return get_ai_hybrid_recommendations(sp, network, history_analysis, num_tracks, randomity_factor)
 
 
+def get_ai_artist_recommendations(network, loved_tracks_list, num_artists=10):
+    """Get AI-powered artist recommendations using GPT-5-mini or Gemini."""
+    try:
+        log_message("Getting AI-powered artist recommendations...", 'green')
+
+        # Sample tracks for AI analysis
+        sample_size = min(100, len(loved_tracks_list))
+        sample_tracks = random.sample(loved_tracks_list, sample_size)
+        sample_track_names = [f"{item.track.title} by {item.track.artist.name}" for item in sample_tracks]
+
+        # Get unique artists
+        artists_set = set()
+        for item in loved_tracks_list:
+            artists_set.add(item.track.artist.name)
+        artists_list = list(artists_set)[:50]  # Top 50 for prompt
+
+        prompt = f"""You are an AI music curator. Analyze this user's music taste and recommend {num_artists} NEW artists they would love.
+
+User's Music Profile:
+- Sample tracks: {', '.join(sample_track_names[:30])}
+- Favorite artists: {', '.join(artists_list[:25])}
+
+Return ONLY a JSON array of artist recommendations in this exact format:
+[
+  {{"type": "artist", "name": "Artist Name", "reason": "Brief reason"}},
+  ...
+]
+
+Focus on artists similar to their taste but NOT in their current collection."""
+
+        ai_response = None
+
+        # Try OpenAI first
+        if AI_PROVIDER == "openai" and OPENAI_API_KEY and openai:
+            try:
+                openai.api_key = OPENAI_API_KEY
+                log_message("Using GPT-5-mini for artist recommendations...")
+                response = openai.chat.completions.create(
+                    model="gpt-5-mini",
+                    messages=[{"role": "user", "content": prompt}]
+                    # Note: GPT-5 models don't support temperature/top_p/max_tokens parameters
+                    # They use default settings only
+                )
+                ai_response = response.choices[0].message.content
+                log_message("Received AI artist recommendations from GPT-5-mini", 'green')
+            except Exception as e:
+                log_message(f"OpenAI error: {e}", 'yellow')
+
+        # Fallback to Gemini
+        if not ai_response and GEMINI_API_KEY and genai:
+            try:
+                genai.configure(api_key=GEMINI_API_KEY)
+                log_message("Using Gemini for artist recommendations...")
+                model = genai.GenerativeModel('gemini-1.5-flash')
+                response = model.generate_content(prompt)
+                ai_response = response.text
+                log_message("Received AI artist recommendations from Gemini", 'green')
+            except Exception as e:
+                log_message(f"Gemini error: {e}", 'yellow')
+
+        if not ai_response:
+            log_message("No AI available, skipping AI recommendations", 'yellow')
+            return []
+
+        # Parse JSON response
+        import json
+        import re
+        json_match = re.search(r'\[.*?\]', ai_response, re.DOTALL)
+        if json_match:
+            try:
+                recommendations_data = json.loads(json_match.group())
+                ai_artists = []
+                for rec in recommendations_data:
+                    if isinstance(rec, dict) and rec.get('type') == 'artist' and 'name' in rec:
+                        ai_artists.append(rec['name'])
+                        log_message(f"AI recommends: {rec['name']} - {rec.get('reason', '')[:50]}...", 'yellow')
+                return ai_artists
+            except json.JSONDecodeError as e:
+                log_message(f"Failed to parse AI response: {e}", 'yellow')
+                return []
+
+        return []
+
+    except Exception as e:
+        log_message(f"Error getting AI recommendations: {e}", 'yellow')
+        return []
+
+
+def get_apple_music_discovery_station(sp, network, num_tracks=100):
+    """
+    Apple Music My Station with balanced familiarity and discovery.
+
+    Mix:
+    - 50% Your Favorites (loved tracks weighted by playcount)
+    - 20% AI Discovery (GPT-5-mini/Gemini recommends NEW artists)
+    - 30% Last.fm Discovery (similar artists from Last.fm)
+
+    Note: Fetches 2x tracks to account for duplicate artist filtering during playlist update.
+    """
+    try:
+        log_message("Creating Apple Music-style discovery station (50% favorites + 20% AI + 30% Last.fm)...", 'green')
+
+        playlist_history = load_playlist_history()
+        banned_items = load_banned_items()
+        user = network.get_user(LASTFM_USERNAME)
+
+        all_tracks = []
+        used_track_keys = set()
+        artist_track_count = Counter()  # Track how many songs per artist
+
+        def add_track(title, artist, source):
+            """Helper to add track if not duplicate. Allows up to 2 tracks per artist for variety."""
+            track_key = f"{title.lower()}|{artist.lower()}"
+            artist_key = artist.lower()
+
+            # Allow up to 2 tracks per artist during discovery (will be filtered to 1 during playlist update)
+            if track_key not in used_track_keys and artist_track_count[artist_key] < 2:
+                all_tracks.append({'title': title, 'artist': artist, 'source': source})
+                used_track_keys.add(track_key)
+                artist_track_count[artist_key] += 1
+                return True
+            return False
+
+        # Fetch 2x tracks to account for duplicate filtering
+        # Target: 100 final tracks, so fetch 200 during discovery
+        discovery_multiplier = 2
+        target_discovery_tracks = num_tracks * discovery_multiplier
+
+        # 1. YOUR FAVORITES (50%) - Loved tracks weighted by playcount
+        favorites_target = int(target_discovery_tracks * 0.50)
+        log_message(f"Selecting {favorites_target} favorites (weighted by playcount)...")
+
+        loved_tracks_list = list(user.get_loved_tracks(limit=None))
+
+        # Weight by playcount - sort by playcount and take weighted random sample
+        loved_with_playcount = []
+        for item in loved_tracks_list:
+            playcount = getattr(item.track, 'playcount', 0) or 1
+            loved_with_playcount.append((item, playcount))
+
+        # Sort by playcount descending and apply weighted selection
+        loved_with_playcount.sort(key=lambda x: x[1], reverse=True)
+
+        # Take 70% from top played, 30% from rest for variety
+        top_played_count = int(len(loved_with_playcount) * 0.7)
+        top_played = [x[0] for x in loved_with_playcount[:top_played_count]]
+        rest = [x[0] for x in loved_with_playcount[top_played_count:]]
+
+        random.shuffle(top_played)
+        random.shuffle(rest)
+        loved_tracks_list = top_played + rest
+
+        for item in loved_tracks_list:
+            if len([t for t in all_tracks if t['source'] == 'favorite']) >= favorites_target:
+                break
+
+            track = item.track
+            if (not is_recently_used(track.title, track.artist.name, playlist_history) and
+                not is_banned_item(track.title, track.artist.name, None, banned_items)):
+                add_track(track.title, track.artist.name, 'favorite')
+
+        log_message(f"Added {len([t for t in all_tracks if t['source'] == 'favorite'])} favorites")
+
+        # 2. AI DISCOVERY (20%) - NEW artists from GPT-5-mini/Gemini
+        ai_target = int(target_discovery_tracks * 0.20)
+        log_message(f"Getting {ai_target} AI-recommended tracks (will be filtered to ~{int(num_tracks * 0.20)})...")
+
+        # Get AI artist recommendations
+        ai_artists = get_ai_artist_recommendations(network, loved_tracks_list, num_artists=15)
+
+        if ai_artists:
+            ai_added = 0
+            for artist_name in ai_artists:
+                if ai_added >= ai_target:
+                    break
+
+                try:
+                    # Get top tracks from AI-recommended artist
+                    artist = network.get_artist(artist_name)
+                    top_tracks = artist.get_top_tracks(limit=5)
+
+                    for track_item in top_tracks:
+                        if ai_added >= ai_target:
+                            break
+
+                        track = track_item.item
+                        if not is_banned_item(track.title, track.artist.name, None, banned_items):
+                            # Skip Spotify verification for speed - will verify during playlist update
+                            if add_track(track.title, track.artist.name, 'ai_discovery'):
+                                ai_added += 1
+                                break  # Only one track per AI artist
+                except:
+                    continue
+
+            log_message(f"Added {ai_added} AI-recommended tracks")
+        else:
+            log_message("No AI recommendations available, will fill with Last.fm", 'yellow')
+
+        # 3. LAST.FM DISCOVERY (30%) - NEW tracks via similar artists
+        lastfm_target = int(target_discovery_tracks * 0.30)
+        log_message(f"Discovering {lastfm_target} NEW tracks via Last.fm similar artists (will be filtered to ~{int(num_tracks * 0.30)})...")
+
+        # Use Last.fm similar artists for discovery (more conservative = closer to taste)
+        lastfm_added = 0
+        for item in random.sample(loved_tracks_list, min(10, len(loved_tracks_list))):
+            if lastfm_added >= lastfm_target:
+                break
+
+            try:
+                artist = network.get_artist(item.track.artist.name)
+                similar = artist.get_similar(limit=10)  # Reduced from 20 to 10 for more conservative matching
+
+                for sim_artist in similar:
+                    if lastfm_added >= lastfm_target:
+                        break
+
+                    top_tracks = sim_artist.item.get_top_tracks(limit=5)
+                    for track_item in top_tracks:
+                        if lastfm_added >= lastfm_target:
+                            break
+
+                        track = track_item.item
+                        if not is_banned_item(track.title, track.artist.name, None, banned_items):
+                            # Skip Spotify verification for speed - will verify during playlist update
+                            if add_track(track.title, track.artist.name, 'lastfm_discovery'):
+                                lastfm_added += 1
+                                break  # Only one track per similar artist
+            except:
+                continue
+
+        log_message(f"Added {lastfm_added} discovery tracks from Last.fm similar artists")
+
+        # 3-5. Fill remaining with more discovery
+        remaining = target_discovery_tracks - len(all_tracks)
+        log_message(f"Filling {remaining} remaining slots with Last.fm similar artist discovery...")
+
+        # Use Last.fm similar artists for remaining slots (conservative matching)
+        for item in random.sample(loved_tracks_list, min(8, len(loved_tracks_list))):
+            if len(all_tracks) >= target_discovery_tracks:
+                break
+
+            try:
+                artist = network.get_artist(item.track.artist.name)
+                similar = artist.get_similar(limit=8)  # Reduced from 15 to 8 for closer matches
+
+                for sim_artist in similar:
+                    if len(all_tracks) >= target_discovery_tracks:
+                        break
+
+                    top_tracks = sim_artist.item.get_top_tracks(limit=5)
+                    for track_item in top_tracks:
+                        if len(all_tracks) >= target_discovery_tracks:
+                            break
+
+                        track = track_item.item
+                        if not is_banned_item(track.title, track.artist.name, None, banned_items):
+                            # Skip Spotify verification for speed - will verify during playlist update
+                            if add_track(track.title, track.artist.name, 'discovery'):
+                                break  # Only one track per similar artist
+            except:
+                continue
+
+        log_message(f"Total tracks discovered: {len(all_tracks)} (target after filtering: ~{num_tracks})", 'green')
+
+        # Convert to track objects
+        class DiscoveryTrack:
+            def __init__(self, title, artist_name):
+                self.title = title
+                self.artist = type('Artist', (), {'name': artist_name})()
+
+        final_tracks = [DiscoveryTrack(t['title'], t['artist']) for t in all_tracks]
+
+        # Shuffle for variety
+        random.shuffle(final_tracks)
+
+        return final_tracks
+
+    except Exception as e:
+        import traceback
+        log_message(f"Error in Apple Music discovery: {e}", 'red')
+        log_message(f"Traceback: {traceback.format_exc()}", 'red')
+        return []
+
+
 def get_ai_hybrid_recommendations(sp, network, history_analysis, num_tracks=100, randomity_factor=50):
     # Keep existing implementation as fallback
     try:
@@ -1634,18 +1931,16 @@ def update_spotify_playlist(sp, playlist_id, tracks):
                 log_message(f"Track not found: {track.title} by {track.artist.name}", 'yellow')
                 not_found_count += 1
 
-        # Clear existing playlist
-        existing_tracks = sp.playlist_items(playlist_id)
-        track_ids_to_remove = []
-
-        for item in existing_tracks['items']:
-          track_ids_to_remove.append(item['track']['uri'])
-        #Spotify API only allows deleting 100 at a time
-        for i in range(0, len(track_ids_to_remove), 100):
-          sp.playlist_remove_all_occurrences_of_items(playlist_id, track_ids_to_remove[i:i+100])
-        # Add new tracks in batches of 100
-        for i in range(0, len(track_uris), 100):
-            sp.playlist_add_items(playlist_id, track_uris[i : i + 100])
+        # Replace playlist contents (clears and adds new tracks)
+        # First call replaces all existing tracks, subsequent calls append
+        if track_uris:
+            sp.playlist_replace_items(playlist_id, track_uris[:100])
+            # Add remaining tracks in batches of 100
+            for i in range(100, len(track_uris), 100):
+                sp.playlist_add_items(playlist_id, track_uris[i : i + 100])
+        else:
+            # If no tracks, just clear the playlist
+            sp.playlist_replace_items(playlist_id, [])
 
         log_message(f"Playlist updated. Added {len(track_uris)} tracks. {not_found_count} tracks not found, {banned_count} tracks banned, {artist_duplicate_count} artist duplicates skipped.", 'green')
 
@@ -1700,10 +1995,8 @@ def job(playlist_id=None):
         return
     log_message("Spotify authentication successful.", 'green')
 
-    log_message("Analyzing listening history for recommendations...")
-    history_analysis = analyze_listening_history()
-    log_message("Generating coherent My Station recommendations...")
-    tracks = get_coherent_my_station_recommendations(spotify_client, lastfm_network, history_analysis, NUMBER_OF_TRACKS, RANDOMITY_FACTOR)
+    log_message("Generating Apple Music-style discovery station...")
+    tracks = get_apple_music_discovery_station(spotify_client, lastfm_network, NUMBER_OF_TRACKS)
     
     if not tracks:
         log_message("Failed to retrieve tracks from Last.fm. Aborting.", 'red')
