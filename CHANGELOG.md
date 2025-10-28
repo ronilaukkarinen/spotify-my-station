@@ -1,4 +1,4 @@
-### 2.2.0: 2025-10-21
+### 2.2.0: 2025-10-28
 
 * Fix playlist appending bug by using playlist_replace_items instead of manual deletion
 * Change mix ratio to 50% favorites, 20% AI discovery, 30% Last.fm discovery
