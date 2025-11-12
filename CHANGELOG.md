@@ -1,3 +1,19 @@
+### 2.3.0: 2025-11-12
+
+* Implement sonic similarity station using Last.fm similar artists
+* Switch from deprecated Spotify Audio Features API to Last.fm collaborative filtering
+* Add intelligent seed track selection from loved tracks (requires 5+ plays in last 7 days)
+* Filter seed candidates to only loved tracks from frequently played artists
+* Get up to 30 similar artists from Last.fm for each seed
+* Build playlist from similar artists' top tracks for sonic cohesion
+* Add fallback to fill remaining slots from loved tracks by similar artists
+* Require 70% minimum track success or fallback to Apple Music station
+* Add detailed logging of seed track, similar artists, and progress
+* Fix issue where seed was picking any recent track instead of loved tracks
+* Add play count tracking per artist in recent listening analysis
+* Update authentication scope to include user-library-read and user-read-recently-played
+* Note: Spotify deprecated Audio Features & Recommendations APIs on November 27, 2024
+
 ### 2.2.0: 2025-10-28
 
 * Fix playlist appending bug by using playlist_replace_items instead of manual deletion

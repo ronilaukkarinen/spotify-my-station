@@ -1,26 +1,26 @@
 # 🎵 Spotify My Station
 
-![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54) ![Spotify](https://img.shields.io/badge/Spotify-1DB954?style=for-the-badge&logo=spotify&logoColor=white) ![Last.fm](https://img.shields.io/badge/last.fm-D51007?style=for-the-badge&logo=last.fm&logoColor=white) ![Chagtgpt](https://img.shields.io/badge/OpenAI-74aa9c?style=for-the-badge&logo=openai&logoColor=white) ![Google Gemini](https://img.shields.io/badge/Google%20Gemini-4285F4?style=for-the-badge&logo=google&logoColor=white) ![Version](https://img.shields.io/badge/version-2.2.0-blue?style=for-the-badge)
+![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54) ![Spotify](https://img.shields.io/badge/Spotify-1DB954?style=for-the-badge&logo=spotify&logoColor=white) ![Last.fm](https://img.shields.io/badge/last.fm-D51007?style=for-the-badge&logo=last.fm&logoColor=white) ![Chagtgpt](https://img.shields.io/badge/OpenAI-74aa9c?style=for-the-badge&logo=openai&logoColor=white) ![Google Gemini](https://img.shields.io/badge/Google%20Gemini-4285F4?style=for-the-badge&logo=google&logoColor=white) ![Version](https://img.shields.io/badge/version-2.3.0-blue?style=for-the-badge)
 
 ![image](https://github.com/user-attachments/assets/6c3e1c17-483e-450f-ae59-60564c69548b)
 
-A Python script that automatically creates an Apple Music "My Station"-style playlist on Spotify with 50% favorites and 50% discovery. Music discovery powered by GPT-5-mini/Gemini AI recommendations and Last.fm similar artists, with unlimited playlist history tracking.
+A Python script that automatically creates sonically cohesive playlists on Spotify based on your recent listening habits. Uses Last.fm similar artists to maintain genre/mood consistency, avoiding jarring transitions from lo-fi electronic to extreme black metal.
 
 ![Screenshot from 2025-06-30 19-49-25](https://github.com/user-attachments/assets/38b60f90-2725-4b56-9897-e644b5df7d1b)
 
 ## Features
 
-- **Balanced discovery**: 50% favorites and 50% new tracks, blending familiarity with discovery
-- **Apple Music My Station experience**: Mimics Apple Music's intelligent station algorithm
-- **Smart mix**:
-  - 50% your favorites (weighted by playcount, with 3+ day cooldown)
-  - 20% AI discovery (GPT-5-mini or Gemini suggests NEW artists based on your taste)
-  - 30% Last.fm discovery (similar artists from Last.fm collaborative filtering)
+- **Sonic similarity station**: Creates cohesive playlists using Last.fm similar artists
+- **Intelligent seed selection**: Picks from loved tracks by artists you've played 5+ times in the last week
+- **Collaborative filtering**: Uses Last.fm's similar artist data (based on millions of users' listening patterns)
+- **Mood-based playlists**: Maintains sonic consistency based on your current listening habits
 - **Unlimited history tracking**: Tracks every song ever suggested with timestamps
 - **Intelligent cooldown**: Minimum 3 days between repeats, overplay protection
 - **Genre filtering**: Ban entire genres from your playlists
-- **Automatic updates**: Runs hourly via cron job with fresh discoveries each time
-- **Comprehensive logging**: Detailed logs showing discovery sources
+- **Automatic updates**: Runs hourly via cron job with fresh cohesive playlists each time
+- **Comprehensive logging**: Shows seed track, similar artists, and build progress
+
+**Note:** Spotify deprecated their Audio Features and Recommendations APIs on November 27, 2024. This version uses Last.fm's collaborative filtering as an alternative.
 
 ## Requirements
 
@@ -131,18 +131,18 @@ The script handles Spotify authentication with clear terminal instructions:
 python spotify-my-station.py
 ```
 
-**AI-powered by default!** The script now uses AI (OpenAI or Google Gemini) to create intelligent playlists that mimic Apple Music's "My Station" feature.
+**Sonic similarity station!** The script creates cohesive playlists based on your recent listening habits using Last.fm's collaborative filtering.
 
 **How it works:**
-- Analyzes your entire Last.fm loved tracks collection 
-- Creates an intelligent mix of familiar favorites and new discoveries
-- Learns from your listening patterns and playlist update history
-- Balances songs you love with AI-curated recommendations based on your taste
+1. **Analyzes your recent listening** - Finds artists you've played 5+ times in the last 7 days
+2. **Picks a seed track** - Randomly selects from your loved tracks by those frequently played artists
+3. **Finds similar artists** - Gets up to 30 similar artists from Last.fm (based on millions of users' data)
+4. **Builds cohesive playlist** - Creates playlist from those similar artists' top tracks
+5. **Maintains variety** - One track per artist, respects cooldowns and history
 
-**Mix Strategy:**
-- 50% songs from your loved tracks collection (weighted by playcount)
-- 20% tracks from AI-recommended artists based on your taste analysis
-- 30% songs from similar artists discovered via Last.fm recommendations
+**Result:** Sonically cohesive playlists that match your current mood without jarring genre transitions.
+
+**Example:** If you've been listening to Solstafir lately, you'll get a playlist of atmospheric black metal and post-metal bands instead of jumping from lo-fi electronic to extreme black metal.
 
 ### Custom Playlist
 

@@ -19,7 +19,7 @@ try:
 except ImportError:
     genai = None
 
-__version__ = "2.2.0"
+__version__ = "2.3.0"
 
 load_dotenv()
 
@@ -330,7 +330,7 @@ def authenticate_spotify():
             client_id=SPOTIPY_CLIENT_ID,
             client_secret=SPOTIPY_CLIENT_SECRET,
             redirect_uri=SPOTIPY_REDIRECT_URI,
-            scope="playlist-modify-public playlist-modify-private user-read-private",
+            scope="playlist-modify-public playlist-modify-private user-read-private user-library-read user-read-recently-played",
             cache_path=cache_path,
             open_browser=False
         )
@@ -1197,6 +1197,402 @@ Focus on artists similar to their taste but NOT in their current collection."""
         return []
 
 
+def get_audio_features_similarity(sp, seed_features, candidate_features):
+    """Calculate similarity score between two tracks based on audio features."""
+    try:
+
+        if not seed_features or not candidate_features:
+            return 0.0
+
+        # Key audio features for sonic similarity
+        feature_weights = {
+            'energy': 2.0,          # High weight - crucial for vibe
+            'danceability': 1.5,    # Important for rhythmic feel
+            'valence': 1.5,         # Mood/positivity
+            'tempo': 1.0,           # Beat speed
+            'acousticness': 1.2,    # Electric vs acoustic
+            'instrumentalness': 1.0, # Vocal vs instrumental
+            'speechiness': 0.8,     # Spoken word content
+            'liveness': 0.5         # Lower weight - less important
+        }
+
+        # Normalize tempo (typically 60-200 BPM) to 0-1 scale
+        seed_tempo_norm = (seed_features['tempo'] - 60) / 140
+        cand_tempo_norm = (candidate_features['tempo'] - 60) / 140
+
+        # Calculate weighted similarity
+        total_weight = sum(feature_weights.values())
+        similarity_score = 0.0
+
+        for feature, weight in feature_weights.items():
+            if feature == 'tempo':
+                # Use normalized tempo
+                diff = abs(seed_tempo_norm - cand_tempo_norm)
+            else:
+                diff = abs(seed_features[feature] - candidate_features[feature])
+
+            # Convert difference to similarity (1 = identical, 0 = completely different)
+            feature_similarity = 1.0 - diff
+            similarity_score += feature_similarity * weight
+
+        # Normalize to 0-100 scale
+        final_score = (similarity_score / total_weight) * 100
+        return final_score
+
+    except Exception as e:
+        log_message(f"Error calculating audio similarity: {e}", 'yellow')
+        return 0.0
+
+
+def get_recent_seed_track(sp, network):
+    """Get one recent loved track to use as seed for sonic similarity."""
+    try:
+        log_message("Finding recent loved track to use as seed...", 'yellow')
+        user = network.get_user(LASTFM_USERNAME)
+
+        # Get recent listening history from last 7 days
+        from datetime import datetime, timedelta
+        seven_days_ago = datetime.now() - timedelta(days=7)
+        seven_days_ago_timestamp = int(seven_days_ago.timestamp())
+
+        recent_tracks = user.get_recent_tracks(limit=500)
+
+        # Build dict of recently listened artists with play counts (from last 7 days)
+        recent_artists = {}  # artist_name -> {'last_played': timestamp, 'play_count': int}
+
+        log_message("Analyzing recent listening history (last 7 days)...", 'yellow')
+        for track_item in recent_tracks:
+            try:
+                timestamp = getattr(track_item, 'timestamp', None)
+                if timestamp:
+                    track_time = int(timestamp)
+                    if track_time < seven_days_ago_timestamp:
+                        continue
+
+                    artist_name = track_item.track.artist.name
+
+                    # Track play count and most recent play for each artist
+                    if artist_name not in recent_artists:
+                        recent_artists[artist_name] = {'last_played': track_time, 'play_count': 1}
+                    else:
+                        recent_artists[artist_name]['play_count'] += 1
+                        if track_time > recent_artists[artist_name]['last_played']:
+                            recent_artists[artist_name]['last_played'] = track_time
+            except:
+                continue
+
+        # Filter to artists with 5+ plays
+        frequent_artists = {name: data for name, data in recent_artists.items() if data['play_count'] >= 5}
+
+        log_message(f"Found {len(recent_artists)} artists in recent listening, {len(frequent_artists)} with 5+ plays", 'yellow')
+
+        # Now get loved tracks and filter to those by frequently played artists
+        log_message("Finding loved tracks from frequently played artists (5+ plays)...", 'yellow')
+        loved_tracks = list(user.get_loved_tracks(limit=None))
+
+        # Load history to avoid using generated tracks as seed
+        playlist_history = load_playlist_history()
+        recent_playlist_tracks = set(playlist_history.get("recent_tracks", []))
+
+        candidates = []
+
+        for item in loved_tracks:
+            track = item.track
+            artist_name = track.artist.name
+
+            # Only include if this artist has 5+ plays in last 7 days
+            if artist_name not in frequent_artists:
+                continue
+
+            # Skip generated playlist tracks
+            track_key = f"{track.title.lower()}|{artist_name.lower()}"
+            if track_key in recent_playlist_tracks:
+                continue
+
+            # Try to find on Spotify
+            try:
+                search_results = sp.search(
+                    q=f"track:{track.title} artist:{artist_name}",
+                    type="track",
+                    limit=1
+                )
+                if search_results["tracks"]["items"]:
+                    spotify_track = search_results["tracks"]["items"][0]
+                    candidates.append({
+                        'title': track.title,
+                        'artist': artist_name,
+                        'uri': spotify_track['uri'],
+                        'spotify_id': spotify_track['id'],
+                        'last_played': frequent_artists[artist_name]['last_played'],
+                        'play_count': frequent_artists[artist_name]['play_count']
+                    })
+
+                    if len(candidates) >= 50:  # Get up to 50 candidates
+                        break
+            except:
+                continue
+
+        log_message(f"Found {len(candidates)} loved tracks from frequently played artists", 'green')
+
+        if not candidates:
+            log_message("No recent loved tracks found, using any loved tracks...", 'yellow')
+            # Fallback to any loved tracks
+            for item in loved_tracks[:100]:
+                track = item.track
+                try:
+                    search_results = sp.search(
+                        q=f"track:{track.title} artist:{track.artist.name}",
+                        type="track",
+                        limit=1
+                    )
+                    if search_results["tracks"]["items"]:
+                        spotify_track = search_results["tracks"]["items"][0]
+                        candidates.append({
+                            'title': track.title,
+                            'artist': track.artist.name,
+                            'uri': spotify_track['uri'],
+                            'spotify_id': spotify_track['id'],
+                            'last_played': 0
+                        })
+
+                        if len(candidates) >= 20:
+                            break
+                except:
+                    continue
+
+        if candidates:
+            # Weight selection toward more recently played
+            # Sort by last_played and pick from top half randomly
+            candidates.sort(key=lambda x: x.get('last_played', 0), reverse=True)
+            top_half = candidates[:max(len(candidates)//2, 1)]
+
+            seed = random.choice(top_half)
+            log_message(f"Selected seed: '{seed['title']}' by {seed['artist']} (from loved tracks)", 'green')
+            return seed
+
+        return None
+
+    except Exception as e:
+        log_message(f"Error getting recent seed track: {e}", 'red')
+        return None
+
+
+def get_sonic_station(sp, network, num_tracks=100):
+    """
+    Create a sonically cohesive playlist using Last.fm similar artists.
+    Note: Spotify's Audio Features & Recommendations APIs were deprecated Nov 2024.
+
+    Strategy:
+    1. Pick one recent favorite track as seed
+    2. Get up to 30 similar artists from Last.fm
+    3. Build playlist primarily from similar artists' top tracks
+    4. Fill remaining slots with tracks from your loved collection by similar artists
+    """
+    try:
+        log_message("Creating sonic similarity station using Last.fm similar artists...", 'green')
+
+        # Get seed track from recent listening
+        seed_track = get_recent_seed_track(sp, network)
+        if not seed_track:
+            log_message("Could not find seed track, falling back to Apple Music station", 'yellow')
+            return get_apple_music_discovery_station(sp, network, num_tracks)
+
+        seed_artist_name = seed_track['artist']
+        log_message(f"Seed track: '{seed_track['title']}' by {seed_artist_name}", 'green')
+
+        # Get similar artists from Last.fm
+        log_message("Finding similar artists from Last.fm...", 'yellow')
+        similar_artists = []
+
+        try:
+            seed_artist = network.get_artist(seed_artist_name)
+            similar_artists_items = seed_artist.get_similar(limit=30)
+            similar_artists = [sa.item for sa in similar_artists_items]
+            log_message(f"Found {len(similar_artists)} similar artists", 'green')
+
+            # Log top 5 for visibility
+            for i, artist in enumerate(similar_artists[:5]):
+                log_message(f"  {i+1}. {artist.name}", 'yellow')
+
+        except Exception as e:
+            log_message(f"Error getting similar artists: {e}", 'red')
+            log_message("Falling back to Apple Music station", 'yellow')
+            return get_apple_music_discovery_station(sp, network, num_tracks)
+
+        if not similar_artists:
+            log_message("No similar artists found, falling back", 'yellow')
+            return get_apple_music_discovery_station(sp, network, num_tracks)
+
+        # Load history and banned items
+        playlist_history = load_playlist_history()
+        banned_items = load_banned_items()
+
+        # Build playlist from similar artists
+        final_tracks = []
+        used_artists = set()
+        used_track_keys = set()
+
+        log_message(f"Building playlist from similar artists' top tracks...", 'yellow')
+
+        # Get tracks from similar artists
+        for similar_artist in similar_artists:
+            if len(final_tracks) >= num_tracks:
+                break
+
+            artist_name = similar_artist.name
+            artist_lower = artist_name.lower()
+
+            # Skip if already used
+            if artist_lower in used_artists:
+                continue
+
+            try:
+                # Get top tracks for this artist
+                top_tracks = similar_artist.get_top_tracks(limit=5)
+
+                for track_item in top_tracks:
+                    if len(final_tracks) >= num_tracks:
+                        break
+
+                    track = track_item.item
+                    track_title = track.title
+                    track_key = f"{track_title.lower()}|{artist_lower}"
+
+                    # Skip if already used, recently played, or banned
+                    if (track_key in used_track_keys or
+                        is_recently_used(track_title, artist_name, playlist_history) or
+                        is_banned_item(track_title, artist_name, None, banned_items)):
+                        continue
+
+                    if not is_track_suitable({'title': track_title, 'artist': artist_name}):
+                        continue
+
+                    # Search on Spotify
+                    try:
+                        search_results = sp.search(
+                            q=f"track:{track_title} artist:{artist_name}",
+                            type="track",
+                            limit=1
+                        )
+
+                        if search_results["tracks"]["items"]:
+                            spotify_track = search_results["tracks"]["items"][0]
+
+                            # Check for banned genres
+                            if banned_items['genres']:
+                                track_genres = get_track_genres(sp, spotify_track['uri'])
+                                if is_banned_item(track_title, artist_name, None, banned_items, track_genres):
+                                    continue
+
+                            class SonicTrack:
+                                def __init__(self, title, artist_name):
+                                    self.title = title
+                                    self.artist = type('Artist', (), {'name': artist_name})()
+
+                            final_tracks.append(SonicTrack(track_title, artist_name))
+                            used_artists.add(artist_lower)
+                            used_track_keys.add(track_key)
+
+                            # Only one track per artist for variety
+                            break
+
+                    except Exception as e:
+                        continue
+
+            except Exception as e:
+                log_message(f"Error getting tracks for {artist_name}: {e}", 'yellow')
+                continue
+
+            # Progress update
+            if len(final_tracks) % 10 == 0 and len(final_tracks) > 0:
+                log_message(f"Progress: {len(final_tracks)}/{num_tracks} tracks...", 'yellow')
+
+        log_message(f"Got {len(final_tracks)} tracks from similar artists", 'green')
+
+        # If we don't have enough, fill from your loved tracks by similar artists
+        if len(final_tracks) < num_tracks:
+            remaining_needed = num_tracks - len(final_tracks)
+            log_message(f"Need {remaining_needed} more tracks, checking your loved collection...", 'yellow')
+
+            user = network.get_user(LASTFM_USERNAME)
+            loved_tracks_list = list(user.get_loved_tracks(limit=None))
+
+            # Create set of similar artist names for quick lookup
+            similar_artist_names = set([sa.name.lower() for sa in similar_artists])
+
+            for item in loved_tracks_list:
+                if len(final_tracks) >= num_tracks:
+                    break
+
+                track = item.track
+                artist_name = track.artist.name
+                artist_lower = artist_name.lower()
+                track_key = f"{track.title.lower()}|{artist_lower}"
+
+                # Only include if artist is in similar artists list
+                if artist_lower not in similar_artist_names:
+                    continue
+
+                # Skip if already used
+                if (track_key in used_track_keys or
+                    artist_lower in used_artists or
+                    is_recently_used(track.title, artist_name, playlist_history) or
+                    is_banned_item(track.title, artist_name, None, banned_items)):
+                    continue
+
+                if not is_track_suitable({'title': track.title, 'artist': artist_name}):
+                    continue
+
+                try:
+                    search_results = sp.search(
+                        q=f"track:{track.title} artist:{artist_name}",
+                        type="track",
+                        limit=1
+                    )
+
+                    if search_results["tracks"]["items"]:
+                        spotify_track = search_results["tracks"]["items"][0]
+
+                        # Check for banned genres
+                        if banned_items['genres']:
+                            track_genres = get_track_genres(sp, spotify_track['uri'])
+                            if is_banned_item(track.title, artist_name, None, banned_items, track_genres):
+                                continue
+
+                        class SonicTrack:
+                            def __init__(self, title, artist_name):
+                                self.title = title
+                                self.artist = type('Artist', (), {'name': artist_name})()
+
+                        final_tracks.append(SonicTrack(track.title, artist_name))
+                        used_artists.add(artist_lower)
+                        used_track_keys.add(track_key)
+
+                except:
+                    continue
+
+            log_message(f"Added {len(final_tracks) - (num_tracks - remaining_needed)} more from loved collection", 'green')
+
+        # Shuffle for variety
+        random.shuffle(final_tracks)
+
+        log_message(f"Created sonic station with {len(final_tracks)} tracks from {len(used_artists)} similar artists", 'green')
+
+        # Ensure we have enough tracks
+        if len(final_tracks) < num_tracks * 0.7:  # Need at least 70%
+            log_message(f"Only found {len(final_tracks)} tracks ({len(final_tracks)/num_tracks*100:.0f}%), falling back to Apple Music station", 'yellow')
+            return get_apple_music_discovery_station(sp, network, num_tracks)
+
+        return final_tracks[:num_tracks]
+
+    except Exception as e:
+        import traceback
+        log_message(f"Error creating sonic station: {e}", 'red')
+        log_message(f"Traceback: {traceback.format_exc()}", 'red')
+        log_message("Falling back to Apple Music station", 'yellow')
+        return get_apple_music_discovery_station(sp, network, num_tracks)
+
+
 def get_apple_music_discovery_station(sp, network, num_tracks=100):
     """
     Apple Music My Station with balanced familiarity and discovery.
@@ -1931,18 +2327,21 @@ def update_spotify_playlist(sp, playlist_id, tracks):
                 log_message(f"Track not found: {track.title} by {track.artist.name}", 'yellow')
                 not_found_count += 1
 
-        # Replace playlist contents (clears and adds new tracks)
-        # First call replaces all existing tracks, subsequent calls append
+        # Replace playlist contents (completely clears and adds new tracks)
+        log_message(f"Replacing playlist with {len(track_uris)} new tracks...", 'yellow')
+
         if track_uris:
+            # First call replaces ALL existing tracks with new ones
             sp.playlist_replace_items(playlist_id, track_uris[:100])
             # Add remaining tracks in batches of 100
             for i in range(100, len(track_uris), 100):
                 sp.playlist_add_items(playlist_id, track_uris[i : i + 100])
         else:
             # If no tracks, just clear the playlist
+            log_message("No tracks to add, clearing playlist", 'yellow')
             sp.playlist_replace_items(playlist_id, [])
 
-        log_message(f"Playlist updated. Added {len(track_uris)} tracks. {not_found_count} tracks not found, {banned_count} tracks banned, {artist_duplicate_count} artist duplicates skipped.", 'green')
+        log_message(f"Playlist updated successfully! Added {len(track_uris)} tracks. {not_found_count} tracks not found, {banned_count} tracks banned, {artist_duplicate_count} artist duplicates skipped.", 'green')
 
 
     except Exception as e:
@@ -1979,8 +2378,8 @@ def job(playlist_id=None):
     log_message(f"Starting playlist update job (version {__version__})...", 'yellow')
     log_message(f"Target playlist ID: {target_playlist_id}")
     log_message(f"Requesting {NUMBER_OF_TRACKS} tracks from Last.fm user: {LASTFM_USERNAME}")
-    log_message("Mode: AI-powered My Station")
-    
+    log_message("Mode: Sonic Similarity Station")
+
     log_message("Authenticating with Last.fm...")
     lastfm_network = authenticate_lastfm()
     if not lastfm_network:
@@ -1995,8 +2394,8 @@ def job(playlist_id=None):
         return
     log_message("Spotify authentication successful.", 'green')
 
-    log_message("Generating Apple Music-style discovery station...")
-    tracks = get_apple_music_discovery_station(spotify_client, lastfm_network, NUMBER_OF_TRACKS)
+    log_message("Generating sonic similarity station based on recent favorites...")
+    tracks = get_sonic_station(spotify_client, lastfm_network, NUMBER_OF_TRACKS)
     
     if not tracks:
         log_message("Failed to retrieve tracks from Last.fm. Aborting.", 'red')
@@ -2014,9 +2413,9 @@ def job(playlist_id=None):
 
 # --- Main ---
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Spotify My Station - AI-powered playlist with Last.fm loved tracks')
+    parser = argparse.ArgumentParser(description='Spotify My Station - Sonic similarity station based on recent favorites')
     parser.add_argument('--playlist', type=str,
                        help='Spotify playlist ID to update (overrides environment variable)')
-    
+
     args = parser.parse_args()
     job(playlist_id=args.playlist)
