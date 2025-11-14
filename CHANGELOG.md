@@ -1,3 +1,15 @@
+### 2.4.0: 2025-11-14
+
+* Revert to Apple Music Discovery Station (50% favorites + 20% AI + 30% Last.fm)
+* Add quality filtering to prevent obscure/low-quality recommendations
+* Filter out artists with < 10,000 Last.fm listeners from AI and Last.fm discovery
+* Block Christmas songs, AI-generated music, covers, tributes, and karaoke tracks
+* Apply quality filters to AI discovery and Last.fm similar artist sections
+* Set NUMBER_OF_TRACKS to 100 for full playlists
+* Maintain strict 1 track per artist policy throughout playlist generation
+* Remove experimental sonic similarity station (too restrictive, limited to ~30 tracks)
+* Restore variety and discovery while maintaining quality control
+
 ### 2.3.0: 2025-11-12
 
 * Implement sonic similarity station using Last.fm similar artists

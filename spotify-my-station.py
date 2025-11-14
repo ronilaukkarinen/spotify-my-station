@@ -19,7 +19,7 @@ try:
 except ImportError:
     genai = None
 
-__version__ = "2.3.0"
+__version__ = "2.4.0"
 
 load_dotenv()
 
@@ -1446,6 +1446,20 @@ def get_sonic_station(sp, network, num_tracks=100):
             if artist_lower in used_artists:
                 continue
 
+            # Filter out obscure/low-quality artists
+            try:
+                # Get Last.fm listener count
+                listeners = similar_artist.get_listener_count()
+                if listeners:
+                    listener_count = int(listeners)
+                    # Skip artists with very low listener counts (< 10,000 listeners)
+                    if listener_count < 10000:
+                        log_message(f"Skipping obscure artist: {artist_name} ({listener_count:,} listeners)", 'yellow')
+                        continue
+            except:
+                # If we can't get listener count, proceed anyway (don't be too strict)
+                pass
+
             try:
                 # Get top tracks for this artist
                 top_tracks = similar_artist.get_top_tracks(limit=5)
@@ -1467,6 +1481,14 @@ def get_sonic_station(sp, network, num_tracks=100):
                     if not is_track_suitable({'title': track_title, 'artist': artist_name}):
                         continue
 
+                    # Additional quality filters for track titles
+                    title_lower = track_title.lower()
+                    # Skip Christmas songs, AI music indicators, etc.
+                    skip_keywords = ['christmas', 'xmas', 'ai generated', 'ai music',
+                                    'cover version', 'tribute', 'karaoke']
+                    if any(keyword in title_lower for keyword in skip_keywords):
+                        continue
+
                     # Search on Spotify
                     try:
                         search_results = sp.search(
@@ -1477,6 +1499,12 @@ def get_sonic_station(sp, network, num_tracks=100):
 
                         if search_results["tracks"]["items"]:
                             spotify_track = search_results["tracks"]["items"][0]
+
+                            # Check Spotify popularity (0-100 scale, skip < 15)
+                            popularity = spotify_track.get('popularity', 0)
+                            if popularity < 15:
+                                log_message(f"Skipping unpopular track: {track_title} by {artist_name} (popularity: {popularity})", 'yellow')
+                                continue
 
                             # Check for banned genres
                             if banned_items['genres']:
@@ -1533,7 +1561,7 @@ def get_sonic_station(sp, network, num_tracks=100):
                 if artist_lower not in similar_artist_names:
                     continue
 
-                # Skip if already used
+                # Skip if already used (including artist already used)
                 if (track_key in used_track_keys or
                     artist_lower in used_artists or
                     is_recently_used(track.title, artist_name, playlist_history) or
@@ -1579,7 +1607,7 @@ def get_sonic_station(sp, network, num_tracks=100):
         log_message(f"Created sonic station with {len(final_tracks)} tracks from {len(used_artists)} similar artists", 'green')
 
         # Ensure we have enough tracks
-        if len(final_tracks) < num_tracks * 0.7:  # Need at least 70%
+        if len(final_tracks) < num_tracks * 0.5:  # Need at least 50%
             log_message(f"Only found {len(final_tracks)} tracks ({len(final_tracks)/num_tracks*100:.0f}%), falling back to Apple Music station", 'yellow')
             return get_apple_music_discovery_station(sp, network, num_tracks)
 
@@ -1684,6 +1712,15 @@ def get_apple_music_discovery_station(sp, network, num_tracks=100):
                 try:
                     # Get top tracks from AI-recommended artist
                     artist = network.get_artist(artist_name)
+
+                    # Quality filter: Check Last.fm listener count
+                    try:
+                        listeners = artist.get_listener_count()
+                        if listeners and int(listeners) < 10000:
+                            continue
+                    except:
+                        pass
+
                     top_tracks = artist.get_top_tracks(limit=5)
 
                     for track_item in top_tracks:
@@ -1691,6 +1728,14 @@ def get_apple_music_discovery_station(sp, network, num_tracks=100):
                             break
 
                         track = track_item.item
+                        track_title_lower = track.title.lower()
+
+                        # Quality filter: Skip Christmas, AI music, covers, etc.
+                        skip_keywords = ['christmas', 'xmas', 'ai generated', 'ai music',
+                                        'cover version', 'tribute', 'karaoke']
+                        if any(keyword in track_title_lower for keyword in skip_keywords):
+                            continue
+
                         if not is_banned_item(track.title, track.artist.name, None, banned_items):
                             # Skip Spotify verification for speed - will verify during playlist update
                             if add_track(track.title, track.artist.name, 'ai_discovery'):
@@ -1721,12 +1766,28 @@ def get_apple_music_discovery_station(sp, network, num_tracks=100):
                     if lastfm_added >= lastfm_target:
                         break
 
+                    # Quality filter: Check Last.fm listener count
+                    try:
+                        listeners = sim_artist.item.get_listener_count()
+                        if listeners and int(listeners) < 10000:
+                            continue
+                    except:
+                        pass
+
                     top_tracks = sim_artist.item.get_top_tracks(limit=5)
                     for track_item in top_tracks:
                         if lastfm_added >= lastfm_target:
                             break
 
                         track = track_item.item
+                        track_title_lower = track.title.lower()
+
+                        # Quality filter: Skip Christmas, AI music, covers, etc.
+                        skip_keywords = ['christmas', 'xmas', 'ai generated', 'ai music',
+                                        'cover version', 'tribute', 'karaoke']
+                        if any(keyword in track_title_lower for keyword in skip_keywords):
+                            continue
+
                         if not is_banned_item(track.title, track.artist.name, None, banned_items):
                             # Skip Spotify verification for speed - will verify during playlist update
                             if add_track(track.title, track.artist.name, 'lastfm_discovery'):
@@ -1754,12 +1815,28 @@ def get_apple_music_discovery_station(sp, network, num_tracks=100):
                     if len(all_tracks) >= target_discovery_tracks:
                         break
 
+                    # Quality filter: Check Last.fm listener count
+                    try:
+                        listeners = sim_artist.item.get_listener_count()
+                        if listeners and int(listeners) < 10000:
+                            continue
+                    except:
+                        pass
+
                     top_tracks = sim_artist.item.get_top_tracks(limit=5)
                     for track_item in top_tracks:
                         if len(all_tracks) >= target_discovery_tracks:
                             break
 
                         track = track_item.item
+                        track_title_lower = track.title.lower()
+
+                        # Quality filter: Skip Christmas, AI music, covers, etc.
+                        skip_keywords = ['christmas', 'xmas', 'ai generated', 'ai music',
+                                        'cover version', 'tribute', 'karaoke']
+                        if any(keyword in track_title_lower for keyword in skip_keywords):
+                            continue
+
                         if not is_banned_item(track.title, track.artist.name, None, banned_items):
                             # Skip Spotify verification for speed - will verify during playlist update
                             if add_track(track.title, track.artist.name, 'discovery'):
@@ -2270,14 +2347,14 @@ def update_spotify_playlist(sp, playlist_id, tracks):
                         if best_match:
                             track_uri = best_match["uri"]
                             spotify_artist_name = best_match["artists"][0]["name"].lower()
-                            
+
                             # Check if we already have a track from this Spotify artist
                             if spotify_artist_name in used_spotify_artists:
                                 log_message(f"Artist duplicate skipped: {track.title} by {track.artist.name} (already have track from {best_match['artists'][0]['name']})", 'yellow')
                                 artist_duplicate_count += 1
                                 track_found = True
                                 break
-                            
+
                             # Check if this track has banned genres
                             if banned_items['genres']:
                                 track_genres = get_track_genres(sp, track_uri)
@@ -2286,7 +2363,7 @@ def update_spotify_playlist(sp, playlist_id, tracks):
                                     banned_count += 1
                                     track_found = True
                                     break
-                            
+
                             if track_uri not in track_uris_set:
                                 track_uris.append(track_uri)
                                 track_uris_set.add(track_uri)
@@ -2297,14 +2374,14 @@ def update_spotify_playlist(sp, playlist_id, tracks):
                             track_result = search_results["tracks"]["items"][0]
                             track_uri = track_result["uri"]
                             spotify_artist_name = track_result["artists"][0]["name"].lower()
-                            
+
                             # Check if we already have a track from this Spotify artist
                             if spotify_artist_name in used_spotify_artists:
                                 log_message(f"Artist duplicate skipped: {track.title} by {track.artist.name} (already have track from {track_result['artists'][0]['name']})", 'yellow')
                                 artist_duplicate_count += 1
                                 track_found = True
                                 break
-                            
+
                             # Check if this track has banned genres
                             if banned_items['genres']:
                                 track_genres = get_track_genres(sp, track_uri)
@@ -2313,7 +2390,7 @@ def update_spotify_playlist(sp, playlist_id, tracks):
                                     banned_count += 1
                                     track_found = True
                                     break
-                            
+
                             if track_uri not in track_uris_set:
                                 track_uris.append(track_uri)
                                 track_uris_set.add(track_uri)
@@ -2378,7 +2455,7 @@ def job(playlist_id=None):
     log_message(f"Starting playlist update job (version {__version__})...", 'yellow')
     log_message(f"Target playlist ID: {target_playlist_id}")
     log_message(f"Requesting {NUMBER_OF_TRACKS} tracks from Last.fm user: {LASTFM_USERNAME}")
-    log_message("Mode: Sonic Similarity Station")
+    log_message("Mode: AI-powered My Station")
 
     log_message("Authenticating with Last.fm...")
     lastfm_network = authenticate_lastfm()
@@ -2394,8 +2471,8 @@ def job(playlist_id=None):
         return
     log_message("Spotify authentication successful.", 'green')
 
-    log_message("Generating sonic similarity station based on recent favorites...")
-    tracks = get_sonic_station(spotify_client, lastfm_network, NUMBER_OF_TRACKS)
+    log_message("Generating Apple Music-style discovery station...")
+    tracks = get_apple_music_discovery_station(spotify_client, lastfm_network, NUMBER_OF_TRACKS)
     
     if not tracks:
         log_message("Failed to retrieve tracks from Last.fm. Aborting.", 'red')
