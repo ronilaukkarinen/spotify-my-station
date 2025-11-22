@@ -10,6 +10,10 @@ from dotenv import load_dotenv
 import json
 from collections import Counter, defaultdict
 import re
+import fcntl
+import sys
+import signal
+import atexit
 try:
     import openai
 except ImportError:
@@ -19,9 +23,47 @@ try:
 except ImportError:
     genai = None
 
-__version__ = "2.4.0"
+__version__ = "2.5.0"
 
 load_dotenv()
+
+# --- Process Management ---
+LOCK_FILE = "/tmp/spotify-my-station.lock"
+lock_fd = None
+
+def acquire_lock():
+    """Acquire exclusive lock to prevent multiple instances."""
+    global lock_fd
+    try:
+        lock_fd = open(LOCK_FILE, 'w')
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        lock_fd.write(str(os.getpid()))
+        lock_fd.flush()
+        return True
+    except IOError:
+        print(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: Another instance is already running. Exiting.")
+        return False
+
+def release_lock():
+    """Release the lock file."""
+    global lock_fd
+    if lock_fd:
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            lock_fd.close()
+            os.remove(LOCK_FILE)
+        except:
+            pass
+
+def cleanup_handler(signum, frame):
+    """Handle cleanup on termination signals."""
+    release_lock()
+    sys.exit(0)
+
+# Register cleanup handlers
+atexit.register(release_lock)
+signal.signal(signal.SIGTERM, cleanup_handler)
+signal.signal(signal.SIGINT, cleanup_handler)
 
 # --- Configuration ---
 LASTFM_API_KEY = os.getenv("LASTFM_API_KEY")
@@ -2490,9 +2532,17 @@ def job(playlist_id=None):
 
 # --- Main ---
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Spotify My Station - Sonic similarity station based on recent favorites')
+    # Acquire lock to prevent multiple instances
+    if not acquire_lock():
+        sys.exit(1)
+
+    parser = argparse.ArgumentParser(description='Spotify My Station - AI-powered discovery with quality filtering')
     parser.add_argument('--playlist', type=str,
                        help='Spotify playlist ID to update (overrides environment variable)')
 
     args = parser.parse_args()
-    job(playlist_id=args.playlist)
+
+    try:
+        job(playlist_id=args.playlist)
+    finally:
+        release_lock()

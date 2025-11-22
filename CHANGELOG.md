@@ -1,3 +1,7 @@
+### 2.5.0: 2025-11-22
+
+* Add exclusive file locking and signal handling to prevent multiple instances and zombie processes
+
 ### 2.4.0: 2025-11-14
 
 * Revert to Apple Music Discovery Station (50% favorites + 20% AI + 30% Last.fm)
