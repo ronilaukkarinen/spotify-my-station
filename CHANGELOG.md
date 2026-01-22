@@ -1,3 +1,15 @@
+### 2.6.0: 2026-01-22
+
+* Add `--recent-obsessions-mode` flag to emphasize current listening patterns over all-time favorites
+* New mode creates genre-coherent playlists based on recent listening:
+  - 10 top obsession tracks (most played from last 30 days)
+  - 50% tracks from artists you've been playing in last 7 days
+  - 25% similar artists to your current obsessions
+  - 15% classics for variety (preferring artists NOT in recent listening)
+* Add `get_top_obsession_tracks()` function using Last.fm monthly top tracks
+* Fix hardcoded paths to use script directory instead of /home/rolle
+* Automatically falls back to standard mode if no recent listening data found
+
 ### 2.5.0: 2025-11-22
 
 * Add exclusive file locking and signal handling to prevent multiple instances and zombie processes

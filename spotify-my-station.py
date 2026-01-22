@@ -23,7 +23,7 @@ try:
 except ImportError:
     genai = None
 
-__version__ = "2.5.0"
+__version__ = "2.6.0"
 
 load_dotenv()
 
@@ -80,9 +80,10 @@ AI_PROVIDER = os.getenv("AI_PROVIDER", "openai").lower()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or os.getenv("OPEN_AI_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-LOG_FILE = os.getenv("LOG_FILE", "/home/rolle/spotify-my-station/spotify-my-station.log")
-HISTORY_FILE = os.getenv("HISTORY_FILE", "/home/rolle/spotify-my-station/playlist-history.json")
-BANNED_FILE = os.getenv("BANNED_FILE", "/home/rolle/spotify-my-station/banned.json")
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+LOG_FILE = os.getenv("LOG_FILE", os.path.join(SCRIPT_DIR, "spotify-my-station.log"))
+HISTORY_FILE = os.getenv("HISTORY_FILE", os.path.join(SCRIPT_DIR, "playlist-history.json"))
+BANNED_FILE = os.getenv("BANNED_FILE", os.path.join(SCRIPT_DIR, "banned.json"))
 
 NUMBER_OF_TRACKS = int(os.getenv("NUMBER_OF_TRACKS", "100"))
 RANDOMITY_FACTOR = int(os.getenv("RANDOMITY_FACTOR", "50"))  # 0-100 scale
@@ -719,6 +720,34 @@ def get_lastfm_recommendations(sp, network, num_tracks=100, randomity_factor=50)
         log_message(f"Error getting Last.fm recommendations: {str(e)}", 'red')
         log_message(f"Traceback: {traceback.format_exc()}", 'red')
         return None
+
+
+def get_top_obsession_tracks(network, limit=10):
+    """Get the user's most played tracks from the last month - their current obsessions."""
+    try:
+        user = network.get_user(LASTFM_USERNAME)
+        log_message(f"Fetching top {limit} obsession tracks from last month...", 'yellow')
+
+        # Get top tracks from last month (PERIOD_1MONTH)
+        top_tracks = user.get_top_tracks(period=pylast.PERIOD_1MONTH, limit=limit)
+
+        obsession_tracks = []
+        for item in top_tracks:
+            track = item.item
+            play_count = item.weight  # Number of plays
+            obsession_tracks.append({
+                'title': track.title,
+                'artist': track.artist.name,
+                'play_count': int(play_count)
+            })
+            log_message(f"  Obsession: {track.title} by {track.artist.name} ({play_count} plays)", 'yellow')
+
+        log_message(f"Found {len(obsession_tracks)} top obsession tracks", 'green')
+        return obsession_tracks
+
+    except Exception as e:
+        log_message(f"Error getting top obsession tracks: {e}", 'yellow')
+        return []
 
 
 def get_recent_listening_context(network):
@@ -1908,6 +1937,256 @@ def get_apple_music_discovery_station(sp, network, num_tracks=100):
         return []
 
 
+def get_recent_obsessions_station(sp, network, num_tracks=100):
+    """
+    Recent Obsessions Mode: Emphasizes current listening patterns over all-time favorites.
+
+    Mix:
+    - 10 tracks: Top obsessions (most played tracks from last 30 days)
+    - 50% Recent obsessions (tracks from artists you've listened to in last 7 days)
+    - 25% Similar to recent (tracks similar to your current obsessions)
+    - 15% Classics/variety (high playcount favorites for balance)
+
+    This mode creates a more genre-coherent playlist based on what you're currently into,
+    rather than mixing all-time favorites which can span many different genres/moods.
+    """
+    try:
+        log_message("Creating Recent Obsessions station (10 top + 50% recent + 25% similar + 15% classics)...", 'green')
+
+        playlist_history = load_playlist_history()
+        banned_items = load_banned_items()
+        user = network.get_user(LASTFM_USERNAME)
+
+        all_tracks = []
+        used_track_keys = set()
+        artist_track_count = Counter()
+
+        def add_track(title, artist, source):
+            """Helper to add track if not duplicate."""
+            track_key = f"{title.lower()}|{artist.lower()}"
+            artist_key = artist.lower()
+
+            if track_key not in used_track_keys and artist_track_count[artist_key] < 2:
+                all_tracks.append({'title': title, 'artist': artist, 'source': source})
+                used_track_keys.add(track_key)
+                artist_track_count[artist_key] += 1
+                return True
+            return False
+
+        # Fetch 2x tracks to account for duplicate filtering
+        discovery_multiplier = 2
+        target_discovery_tracks = num_tracks * discovery_multiplier
+
+        # 0. TOP OBSESSIONS (10 tracks) - Most played tracks from last 30 days
+        log_message("Getting your top obsession tracks from last 30 days...", 'yellow')
+        top_obsessions = get_top_obsession_tracks(network, limit=10)
+        obsessions_added = 0
+
+        for track_data in top_obsessions:
+            if not is_banned_item(track_data['title'], track_data['artist'], None, banned_items):
+                if add_track(track_data['title'], track_data['artist'], 'top_obsession'):
+                    obsessions_added += 1
+
+        log_message(f"Added {obsessions_added} top obsession tracks", 'green')
+
+        # Get recent listening context (last 7 days)
+        log_message("Analyzing your last 7 days of listening...", 'yellow')
+        recent_context = get_recent_listening_context(network)
+        recent_artists = recent_context.get('recent_artists', [])
+        artist_counts = recent_context.get('artist_counts', {})
+
+        if not recent_artists:
+            log_message("No recent listening data found, falling back to standard mode", 'yellow')
+            return get_apple_music_discovery_station(sp, network, num_tracks)
+
+        log_message(f"Found {len(recent_artists)} artists from recent listening", 'green')
+
+        # Get all loved tracks for reference
+        loved_tracks_list = list(user.get_loved_tracks(limit=None))
+        loved_by_artist = defaultdict(list)
+        for item in loved_tracks_list:
+            loved_by_artist[item.track.artist.name.lower()].append(item.track)
+
+        # 1. RECENT OBSESSIONS (50%) - Tracks from artists you've been listening to lately
+        recent_target = int(target_discovery_tracks * 0.50)
+        log_message(f"Selecting {recent_target} tracks from your recent obsessions...")
+
+        # Sort recent artists by play count (most played first)
+        sorted_recent_artists = sorted(
+            [(a, artist_counts.get(a, 0)) for a in recent_artists],
+            key=lambda x: x[1],
+            reverse=True
+        )
+
+        recent_added = 0
+        for artist_name, play_count in sorted_recent_artists:
+            if recent_added >= recent_target:
+                break
+
+            artist_lower = artist_name.lower()
+
+            # First, try to get loved tracks from this artist
+            if artist_lower in loved_by_artist:
+                for track in loved_by_artist[artist_lower]:
+                    if recent_added >= recent_target:
+                        break
+                    if (not is_recently_used(track.title, track.artist.name, playlist_history) and
+                        not is_banned_item(track.title, track.artist.name, None, banned_items)):
+                        if add_track(track.title, track.artist.name, 'recent_obsession'):
+                            recent_added += 1
+
+            # If no loved tracks, get top tracks from Last.fm
+            if artist_track_count[artist_lower] == 0:
+                try:
+                    artist = network.get_artist(artist_name)
+                    top_tracks = artist.get_top_tracks(limit=3)
+                    for track_item in top_tracks:
+                        if recent_added >= recent_target:
+                            break
+                        track = track_item.item
+                        track_title_lower = track.title.lower()
+
+                        # Quality filter
+                        skip_keywords = ['live', 'live at', 'concert', 'demo', 'christmas', 'xmas']
+                        if any(keyword in track_title_lower for keyword in skip_keywords):
+                            continue
+
+                        if not is_banned_item(track.title, track.artist.name, None, banned_items):
+                            if add_track(track.title, track.artist.name, 'recent_obsession'):
+                                recent_added += 1
+                                break
+                except:
+                    continue
+
+        log_message(f"Added {recent_added} tracks from recent obsessions")
+
+        # 2. SIMILAR TO RECENT (25%) - Tracks similar to your current obsessions
+        similar_target = int(target_discovery_tracks * 0.25)
+        log_message(f"Finding {similar_target} tracks similar to your current obsessions...")
+
+        similar_added = 0
+        # Use top 10 recent artists as seeds for similar artist discovery
+        seed_artists = [a for a, _ in sorted_recent_artists[:10]]
+
+        for seed_artist in seed_artists:
+            if similar_added >= similar_target:
+                break
+
+            try:
+                artist = network.get_artist(seed_artist)
+                similar_artists = artist.get_similar(limit=5)
+
+                for sim_artist_item in similar_artists:
+                    if similar_added >= similar_target:
+                        break
+
+                    sim_artist = sim_artist_item.item
+                    sim_artist_lower = sim_artist.name.lower()
+
+                    # Skip if we already have tracks from this artist
+                    if artist_track_count[sim_artist_lower] >= 2:
+                        continue
+
+                    # Quality filter: Check Last.fm listener count
+                    try:
+                        listeners = sim_artist.get_listener_count()
+                        if listeners and int(listeners) < 10000:
+                            continue
+                    except:
+                        pass
+
+                    top_tracks = sim_artist.get_top_tracks(limit=3)
+                    for track_item in top_tracks:
+                        if similar_added >= similar_target:
+                            break
+
+                        track = track_item.item
+                        track_title_lower = track.title.lower()
+
+                        skip_keywords = ['live', 'live at', 'concert', 'demo', 'christmas', 'xmas', 'cover', 'tribute']
+                        if any(keyword in track_title_lower for keyword in skip_keywords):
+                            continue
+
+                        if not is_banned_item(track.title, track.artist.name, None, banned_items):
+                            if add_track(track.title, track.artist.name, 'similar_to_recent'):
+                                similar_added += 1
+                                break
+            except:
+                continue
+
+        log_message(f"Added {similar_added} tracks similar to recent obsessions")
+
+        # 3. CLASSICS/VARIETY (15%) - High playcount favorites for balance
+        classics_target = int(target_discovery_tracks * 0.15)
+        log_message(f"Adding {classics_target} classic favorites for variety...")
+
+        # Sort loved tracks by playcount
+        loved_with_playcount = []
+        for item in loved_tracks_list:
+            playcount = getattr(item.track, 'playcount', 0) or 0
+            loved_with_playcount.append((item, playcount))
+
+        loved_with_playcount.sort(key=lambda x: x[1], reverse=True)
+
+        classics_added = 0
+        for item, playcount in loved_with_playcount:
+            if classics_added >= classics_target:
+                break
+
+            track = item.track
+            artist_lower = track.artist.name.lower()
+
+            # Prefer artists NOT in recent listening for variety
+            if artist_lower in [a.lower() for a in recent_artists]:
+                # Still allow some recent artists but with lower priority
+                if random.random() > 0.3:
+                    continue
+
+            if (not is_recently_used(track.title, track.artist.name, playlist_history) and
+                not is_banned_item(track.title, track.artist.name, None, banned_items)):
+                if add_track(track.title, track.artist.name, 'classic'):
+                    classics_added += 1
+
+        log_message(f"Added {classics_added} classic favorites")
+
+        # Fill remaining slots if needed
+        remaining = target_discovery_tracks - len(all_tracks)
+        if remaining > 0:
+            log_message(f"Filling {remaining} remaining slots...")
+            for item, _ in loved_with_playcount:
+                if len(all_tracks) >= target_discovery_tracks:
+                    break
+                track = item.track
+                if not is_banned_item(track.title, track.artist.name, None, banned_items):
+                    add_track(track.title, track.artist.name, 'filler')
+
+        log_message(f"Total tracks discovered: {len(all_tracks)} (target after filtering: ~{num_tracks})", 'green')
+
+        # Log source breakdown
+        sources = Counter(t['source'] for t in all_tracks)
+        log_message(f"Source breakdown: {dict(sources)}", 'yellow')
+
+        # Convert to track objects
+        class ObsessionTrack:
+            def __init__(self, title, artist_name):
+                self.title = title
+                self.artist = type('Artist', (), {'name': artist_name})()
+
+        final_tracks = [ObsessionTrack(t['title'], t['artist']) for t in all_tracks]
+
+        # Shuffle for variety
+        random.shuffle(final_tracks)
+
+        return final_tracks
+
+    except Exception as e:
+        import traceback
+        log_message(f"Error in Recent Obsessions mode: {e}", 'red')
+        log_message(f"Traceback: {traceback.format_exc()}", 'red')
+        log_message("Falling back to standard mode...", 'yellow')
+        return get_apple_music_discovery_station(sp, network, num_tracks)
+
+
 def get_ai_hybrid_recommendations(sp, network, history_analysis, num_tracks=100, randomity_factor=50):
     # Keep existing implementation as fallback
     try:
@@ -2491,13 +2770,17 @@ def log_message(message, color=None):
         f.write(log_entry)
 
 
-def job(playlist_id=None):
+def job(playlist_id=None, recent_obsessions_mode=False):
     target_playlist_id = playlist_id or SPOTIFY_PLAYLIST_ID
-    
+
     log_message(f"Starting playlist update job (version {__version__})...", 'yellow')
     log_message(f"Target playlist ID: {target_playlist_id}")
     log_message(f"Requesting {NUMBER_OF_TRACKS} tracks from Last.fm user: {LASTFM_USERNAME}")
-    log_message("Mode: AI-powered My Station")
+
+    if recent_obsessions_mode:
+        log_message("Mode: Recent Obsessions (emphasizing current listening patterns)", 'green')
+    else:
+        log_message("Mode: AI-powered My Station")
 
     log_message("Authenticating with Last.fm...")
     lastfm_network = authenticate_lastfm()
@@ -2513,8 +2796,12 @@ def job(playlist_id=None):
         return
     log_message("Spotify authentication successful.", 'green')
 
-    log_message("Generating Apple Music-style discovery station...")
-    tracks = get_apple_music_discovery_station(spotify_client, lastfm_network, NUMBER_OF_TRACKS)
+    if recent_obsessions_mode:
+        log_message("Generating Recent Obsessions station...")
+        tracks = get_recent_obsessions_station(spotify_client, lastfm_network, NUMBER_OF_TRACKS)
+    else:
+        log_message("Generating Apple Music-style discovery station...")
+        tracks = get_apple_music_discovery_station(spotify_client, lastfm_network, NUMBER_OF_TRACKS)
     
     if not tracks:
         log_message("Failed to retrieve tracks from Last.fm. Aborting.", 'red')
@@ -2539,10 +2826,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Spotify My Station - AI-powered discovery with quality filtering')
     parser.add_argument('--playlist', type=str,
                        help='Spotify playlist ID to update (overrides environment variable)')
+    parser.add_argument('--recent-obsessions-mode', action='store_true',
+                       help='Emphasize recent listening patterns (last 7 days) over all-time favorites')
 
     args = parser.parse_args()
 
     try:
-        job(playlist_id=args.playlist)
+        job(playlist_id=args.playlist, recent_obsessions_mode=args.recent_obsessions_mode)
     finally:
         release_lock()

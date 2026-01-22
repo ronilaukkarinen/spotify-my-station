@@ -1,6 +1,6 @@
 # 🎵 Spotify My Station
 
-![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54) ![Spotify](https://img.shields.io/badge/Spotify-1DB954?style=for-the-badge&logo=spotify&logoColor=white) ![Last.fm](https://img.shields.io/badge/last.fm-D51007?style=for-the-badge&logo=last.fm&logoColor=white) ![Chagtgpt](https://img.shields.io/badge/OpenAI-74aa9c?style=for-the-badge&logo=openai&logoColor=white) ![Google Gemini](https://img.shields.io/badge/Google%20Gemini-4285F4?style=for-the-badge&logo=google&logoColor=white) ![Version](https://img.shields.io/badge/version-2.5.0-blue?style=for-the-badge)
+![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54) ![Spotify](https://img.shields.io/badge/Spotify-1DB954?style=for-the-badge&logo=spotify&logoColor=white) ![Last.fm](https://img.shields.io/badge/last.fm-D51007?style=for-the-badge&logo=last.fm&logoColor=white) ![Chagtgpt](https://img.shields.io/badge/OpenAI-74aa9c?style=for-the-badge&logo=openai&logoColor=white) ![Google Gemini](https://img.shields.io/badge/Google%20Gemini-4285F4?style=for-the-badge&logo=google&logoColor=white) ![Version](https://img.shields.io/badge/version-2.6.0-blue?style=for-the-badge)
 
 ![image](https://github.com/user-attachments/assets/6c3e1c17-483e-450f-ae59-60564c69548b)
 
@@ -12,6 +12,7 @@ A Python script that automatically creates an Apple Music "My Station"-style pla
 
 - **Balanced discovery**: 50% favorites and 50% new tracks, blending familiarity with discovery
 - **Apple Music My Station experience**: Mimics Apple Music's intelligent station algorithm
+- **Recent Obsessions Mode**: Optional `--recent-obsessions-mode` flag for genre-coherent playlists based on last 7 days
 - **Smart mix**:
   - 50% your favorites (weighted by playcount, with 3+ day cooldown)
   - 20% AI discovery (GPT-5-mini or Gemini suggests NEW artists based on your taste)
@@ -160,6 +161,24 @@ python spotify-my-station.py --playlist PLAYLIST_ID
 ```
 Updates a specific playlist instead of the default one from environment variables.
 
+### Recent Obsessions Mode
+
+```bash
+python spotify-my-station.py --recent-obsessions-mode
+```
+
+Emphasizes your current listening patterns (last 7 days) instead of all-time favorites. Creates more genre-coherent playlists based on what you've been into lately.
+
+**Mix Strategy:**
+- 10 top obsession tracks (your most played songs from last 30 days)
+- 50% tracks from artists you've been playing in the last 7 days
+- 25% similar artists to your current obsessions
+- 15% classics for variety (preferring artists NOT in recent listening)
+
+This mode is useful when your standard playlist feels too scattered across different genres/moods. It focuses on your current vibe instead of mixing electronic, black metal, classic rock, etc. all together.
+
+Falls back to standard mode automatically if no recent listening data is found.
+
 ### Genre Filtering
 
 Create a `banned.json` file to filter out unwanted genres:
@@ -186,7 +205,10 @@ Use the provided `banned.example.json` as a template. Supported prefixes:
 ```bash
 python spotify-my-station.py --help
 ```
-Shows all available options.
+
+Available options:
+- `--playlist PLAYLIST_ID` - Update a specific playlist
+- `--recent-obsessions-mode` - Emphasize recent listening patterns
 
 ### Automated runs with cron
 
@@ -199,8 +221,11 @@ To run the script automatically every hour:
 
 2. Add this line:
    ```bash
-   # Spotify My Station
+   # Spotify My Station (standard mode)
    0 * * * * cd /home/rolle/spotify-my-station && /home/rolle/spotify-my-station/venv/bin/python spotify-my-station.py --playlist xxxxxxxxxxx >> /dev/null 2>&1
+
+   # Or with recent obsessions mode for genre-coherent playlists
+   0 * * * * cd /home/rolle/spotify-my-station && /home/rolle/spotify-my-station/venv/bin/python spotify-my-station.py --playlist xxxxxxxxxxx --recent-obsessions-mode >> /dev/null 2>&1
    ```
 
 ## Configuration
